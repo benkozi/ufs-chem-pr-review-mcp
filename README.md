@@ -38,34 +38,50 @@ Configured in [`config/repositories.yaml`](file:///Users/bkoziol/sandbox/git-ben
 
 ---
 
-## Installation & Setup
+## Getting Started
 
-### Prerequisites
-- Python 3.13
-- [uv](https://docs.astral.sh/uv/) package manager
-- Authenticated GitHub access: either [GitHub CLI (`gh`)](https://cli.github.com/) logged in via `gh auth login`, or a Personal Access Token (`UFS_CHEM_GITHUB_TOKEN` / `GITHUB_TOKEN`).
+### 1. Prerequisites & Authentication
 
-### Authentication & Token Resolution
+- **Runtime**: Python 3.13 and [uv](https://docs.astral.sh/uv/) (or [Docker](https://www.docker.com/))
+- **GitHub Access**:
+  - **Recommended**: Local [GitHub CLI (`gh`)](https://cli.github.com/) authenticated via `gh auth login` (read-only token is fully sufficient).
+  - **Alternative**: A GitHub Personal Access Token (PAT) with `repo` or `public_repo` read scope, set via `UFS_CHEM_GITHUB_TOKEN` or `GITHUB_TOKEN`.
 
-GitHub credentials are automatically resolved in the following priority order:
+GitHub credentials are automatically resolved in this priority order:
 1. Explicit CLI argument: `--token <PAT>`
 2. Application environment variable: `UFS_CHEM_GITHUB_TOKEN`
 3. Standard environment variable: `GITHUB_TOKEN`
-4. Local GitHub CLI credentials: `gh auth token`
+4. Local GitHub CLI session: `gh auth token`
 
-> [!NOTE]
-> If you already use `gh` (e.g. `gh auth login` with read-only or repo access), no manual token configuration is necessary! The server and sync tool will automatically detect and use your session.
+---
 
-### Install
+### 2. Installation & Initial Database Sync
+
+Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/benkozi/ufs-chem-pr-review-mcp.git
 cd ufs-chem-pr-review-mcp
 uv sync --all-groups
 ```
 
-### Configure MCP Client
+Populate historical review comments from the tracked repositories into the local SQLite database:
+```bash
+# Ingest historical reviews across all configured UFS-Chem repositories
+uv run ufs-chem-pr-review-sync --config config/repositories.yaml
+```
 
-#### Claude Desktop (`claude_desktop_config.json`)
+> [!NOTE]
+> If you are authenticated with `gh`, the sync tool runs automatically without needing to pass a token. If `gh` is unauthenticated, pass `--token <PAT>` or set `GITHUB_TOKEN`.
+
+---
+
+### 3. Configuring the MCP Server
+
+You can run the MCP server using either **`uv` (recommended)** or a **Docker container**.
+
+#### Option A: Native Execution with `uv` (Recommended)
+
+##### MCP Client Configuration (`~/.gemini/config/mcp_config.json`)
 ```json
 {
   "mcpServers": {
@@ -86,21 +102,53 @@ uv sync --all-groups
 }
 ```
 
-#### Antigravity CLI / Gemini Sidecar
+---
+
+#### Option B: Containerized Execution with Docker (Completely Self-Contained)
+
+The Docker image clones the repository internally and bundles the entire review database, rules, and configuration. **No host directory or volume mounts are required.**
+
+##### 1. Build the Docker Image
+```bash
+docker build -t ufs-chem-pr-review-mcp:latest .
+```
+*(Optionally specify a branch or tag: `docker build --build-arg REPO_REF=main -t ufs-chem-pr-review-mcp:latest .`)*
+
+##### 2. Configure MCP Client with Docker (`~/.gemini/config/mcp_config.json`)
 ```json
 {
-  "name": "ufs-chem-pr-review-mcp",
-  "command": "uv",
-  "args": [
-    "--directory",
-    "/absolute/path/to/ufs-chem-pr-review-mcp",
-    "run",
-    "ufs-chem-pr-review-mcp"
-  ]
+  "mcpServers": {
+    "ufs-chem-pr-review": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_TOKEN",
+        "ufs-chem-pr-review-mcp:latest"
+      ]
+    }
+  }
 }
 ```
 
+> [!TIP]
+> **Key Docker Flags for MCP**:
+> - **`-i` (interactive)**: Required. Keeps standard input (`STDIN`) open so the host client can send JSON-RPC requests to the MCP server.
+> - **Do NOT use `-t` (TTY)**: A pseudo-TTY converts `\n` to `\r\n` and injects escape sequences that corrupt JSON-RPC protocol framing.
+> - **`-e GITHUB_TOKEN`**: Forwards your host `GITHUB_TOKEN` environment variable into the container for evaluating live GitHub pull requests with `evaluate_pr`.
+> - **Optional custom database mount**: If you wish to mount an external database from your host, you can add `-v /path/to/host/data:/app/data` (without `:ro`). If omitted, the container uses its internal database.
+
 ---
+
+### 4. Verification
+
+After saving your configuration and restarting your client:
+1. In Antigravity / Gemini: Open **Additional Options (...) > MCP Servers** and confirm `ufs-chem-pr-review` is connected.
+2. Test a query with the assistant:
+   > *"Show me review statistics for ufs-community/CATChem using ufs-chem-pr-review."*
+
 
 ## CLI Sync Usage
 
