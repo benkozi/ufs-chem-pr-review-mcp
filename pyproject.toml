@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "ufs-chem-pr-review-mcp"
 version = "0.1.0"
 description = "Local Model Context Protocol (MCP) server providing historical review context, classification, and ponytail-aligned code review for UFS-Chem repositories"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.27",
     "mcp>=1.12,<2",
@@ -61,7 +61,7 @@ init_typed = true
 init_forbid_extra = true
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.lint]

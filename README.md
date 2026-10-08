@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/benkozi/ufs-chem-pr-review-mcp/actions/workflows/ci.yaml/badge.svg)](https://github.com/benkozi/ufs-chem-pr-review-mcp/actions/workflows/ci.yaml)
 [![Coverage: 100%](https://img.shields.io/badge/Coverage-100%25-brightgreen.svg)](https://github.com/benkozi/ufs-chem-pr-review-mcp)
-[![Python: 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
+[![Python: 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 Local [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server providing historical review retrieval, Ponytail over-engineering audits, UFS-Chem domain rules, and machine-applicable patch generation for atmospheric chemistry repositories within the Unified Forecast System (UFS).
@@ -41,7 +41,7 @@ Configured in [`config/repositories.yaml`](file:///Users/bkoziol/sandbox/git-ben
 ## Installation & Setup
 
 ### Prerequisites
-- Python >= 3.11
+- Python 3.13
 - [uv](https://docs.astral.sh/uv/) package manager
 
 ### Install
