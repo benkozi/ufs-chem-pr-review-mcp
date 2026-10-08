@@ -18,6 +18,7 @@ from ufs_chem_pr_review_mcp.models.github import (
     GitHubReviewPayload,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
+    BaseEvaluateInput,
     DomainFinding,
     EvaluateDiffInput,
     EvaluatePrInput,
@@ -168,6 +169,14 @@ def test_pull_request_record() -> None:
     )
     assert pr.pr_number == 99
     assert pr.merged_at is None
+
+
+def test_base_evaluate_input() -> None:
+    base = BaseEvaluateInput()
+    assert base.output_format == OutputFormat.MARKDOWN
+    assert base.review_mode == ReviewMode.SUMMARY_AND_INLINE
+    assert base.include_ponytail_audit is True
+    assert base.max_context_comments == 15
 
 
 def test_evaluate_pr_input_bounds() -> None:

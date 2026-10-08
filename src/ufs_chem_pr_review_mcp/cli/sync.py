@@ -122,7 +122,5 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-sync_main = main
-
 if __name__ == "__main__":
     sys.exit(main())

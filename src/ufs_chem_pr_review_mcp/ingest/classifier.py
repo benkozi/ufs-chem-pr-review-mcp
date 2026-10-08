@@ -192,7 +192,7 @@ def classify_comment(
             "molecular weight",
         ]
     ):
-        criticality = 4 if has_diff_followup else 4
+        criticality = 4
     elif assigned_category in (
         ReviewCategory.OVERENGINEERING,
         ReviewCategory.ESMF_NUOPC,

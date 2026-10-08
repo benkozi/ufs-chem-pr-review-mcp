@@ -13,6 +13,7 @@ from ufs_chem_pr_review_mcp.models.github import (
     GitHubReviewPayload,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
+    BaseEvaluateInput,
     DomainFinding,
     EvaluateDiffInput,
     EvaluatePrInput,
@@ -28,6 +29,7 @@ from ufs_chem_pr_review_mcp.models.review import (
 )
 
 __all__ = [
+    "BaseEvaluateInput",
     "CodePatch",
     "DiffFollowUpStatus",
     "DomainFinding",

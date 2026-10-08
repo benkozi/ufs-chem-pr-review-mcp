@@ -12,10 +12,32 @@ from ufs_chem_pr_review_mcp.models.patch import CodePatch
 from ufs_chem_pr_review_mcp.models.review import ReviewCommentRecord
 
 
-class EvaluatePrInput(BaseModel):
-    """Input payload for evaluate_pr MCP tool."""
+class BaseEvaluateInput(BaseModel):
+    """Base schema for evaluation options shared across diff and PR evaluators."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    output_format: OutputFormat = Field(
+        default=OutputFormat.MARKDOWN,
+        description="Desired output format: markdown, github_json, patch, both, or all",
+    )
+    review_mode: ReviewMode = Field(
+        default=ReviewMode.SUMMARY_AND_INLINE,
+        description="Review detail mode: summary_and_inline, summary_only, or inline_only",
+    )
+    include_ponytail_audit: bool = Field(
+        default=True, description="Whether to include ponytail over-engineering checks"
+    )
+    max_context_comments: int = Field(
+        default=15,
+        ge=1,
+        le=50,
+        description="Maximum number of historical matching comments to retrieve",
+    )
+
+
+class EvaluatePrInput(BaseEvaluateInput):
+    """Input payload for evaluate_pr MCP tool."""
 
     repo: str = Field(
         description="Target repository in owner/repo format, e.g. 'ufs-community/CATChem'"
@@ -23,51 +45,15 @@ class EvaluatePrInput(BaseModel):
     pr_number: int = Field(
         ge=1, description="Pull request number on GitHub to evaluate"
     )
-    output_format: OutputFormat = Field(
-        default=OutputFormat.MARKDOWN,
-        description="Desired output format: markdown, github_json, patch, both, or all",
-    )
-    review_mode: ReviewMode = Field(
-        default=ReviewMode.SUMMARY_AND_INLINE,
-        description="Review detail mode: summary_and_inline, summary_only, or inline_only",
-    )
-    include_ponytail_audit: bool = Field(
-        default=True, description="Whether to include ponytail over-engineering checks"
-    )
-    max_context_comments: int = Field(
-        default=15,
-        ge=1,
-        le=50,
-        description="Maximum number of historical matching comments to retrieve",
-    )
 
 
-class EvaluateDiffInput(BaseModel):
+class EvaluateDiffInput(BaseEvaluateInput):
     """Input payload for evaluate_diff MCP tool."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     diff_text: str = Field(description="Unified git diff text to evaluate")
     target_repo: str = Field(
         default="ufs-community/CATChem",
         description="Repository context to match historical rules against",
-    )
-    output_format: OutputFormat = Field(
-        default=OutputFormat.MARKDOWN,
-        description="Desired output format: markdown, github_json, patch, both, or all",
-    )
-    review_mode: ReviewMode = Field(
-        default=ReviewMode.SUMMARY_AND_INLINE,
-        description="Review detail mode: summary_and_inline, summary_only, or inline_only",
-    )
-    include_ponytail_audit: bool = Field(
-        default=True, description="Whether to include ponytail over-engineering checks"
-    )
-    max_context_comments: int = Field(
-        default=15,
-        ge=1,
-        le=50,
-        description="Maximum number of historical matching comments to retrieve",
     )
 
 

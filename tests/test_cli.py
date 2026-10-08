@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from ufs_chem_pr_review_mcp.cli.sync import main, sync_main
+from ufs_chem_pr_review_mcp.cli.sync import main
 
 
 def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -127,4 +127,3 @@ repositories:
         ]
     )
     assert ret == 0
-    assert sync_main == main

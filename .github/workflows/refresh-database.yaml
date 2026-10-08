@@ -12,6 +12,10 @@ on:
         default: '180'
         type: string
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   sync-reviews:
     name: Sync Historical Pull Request Reviews
@@ -25,7 +29,7 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
+      - name: Set up Python 3.13
         run: uv python install 3.13
 
       - name: Install dependencies
@@ -37,12 +41,27 @@ jobs:
         run: |
           uv run ufs-chem-pr-review-sync \
             --config config/repositories.yaml \
-            --db data/reviews.sqlite3 \
+            --db data/ufs_chem_reviews.sqlite3 \
             --retention-days ${{ inputs.retention_days || '180' }}
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(data): refresh historical review database"
+          title: "chore(data): refresh historical review database"
+          body: |
+            Automated weekly refresh of historical UFS-Chem PR reviews and comments.
+
+            - Synced latest reviews across monitored repositories.
+            - Pruned older records per retention policy.
+          branch: chore/refresh-review-database
+          base: main
+          delete-branch: true
 
       - name: Upload database artifact
         uses: actions/upload-artifact@v4
         with:
-          name: reviews-sqlite3
-          path: data/reviews.sqlite3
+          name: ufs-chem-reviews-sqlite3
+          path: data/ufs_chem_reviews.sqlite3
           retention-days: 90

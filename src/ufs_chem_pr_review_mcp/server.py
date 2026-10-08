@@ -238,6 +238,16 @@ def _render_github_json(ctx: ReviewContextResponse) -> str:
     return payload.model_dump_json(indent=2)
 
 
+def _format_context_response(ctx: ReviewContextResponse, output_format: str) -> str:
+    """Format ReviewContextResponse into specified OutputFormat (patch, github_json, or markdown)."""
+    fmt = OutputFormat(output_format)
+    if fmt == OutputFormat.PATCH:
+        return build_unified_diff_patch(ctx.suggested_patches).patch_text
+    if fmt == OutputFormat.GITHUB_JSON:
+        return _render_github_json(ctx)
+    return _render_markdown(ctx)
+
+
 def create_mcp_server(db_path: Path | None = None) -> FastMCP:
     """Initialize and configure the FastMCP server instance."""
     settings = Settings()
@@ -273,12 +283,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             max_context_comments=max_context_comments,
             db=db,
         )
-        fmt = OutputFormat(output_format)
-        if fmt == OutputFormat.PATCH:
-            return build_unified_diff_patch(ctx.suggested_patches).patch_text
-        if fmt == OutputFormat.GITHUB_JSON:
-            return _render_github_json(ctx)
-        return _render_markdown(ctx)
+        return _format_context_response(ctx, output_format)
 
     # 2. evaluate_pr
     @mcp.tool(
@@ -312,12 +317,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             max_context_comments=max_context_comments,
             db=db,
         )
-        fmt = OutputFormat(output_format)
-        if fmt == OutputFormat.PATCH:
-            return build_unified_diff_patch(ctx.suggested_patches).patch_text
-        if fmt == OutputFormat.GITHUB_JSON:
-            return _render_github_json(ctx)
-        return _render_markdown(ctx)
+        return _format_context_response(ctx, output_format)
 
     # 3. search_review_history
     @mcp.tool(
