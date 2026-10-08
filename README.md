@@ -188,7 +188,8 @@ uv run ufs-chem-pr-review-sync \
 
 ### Resources
 - `ufs-chem://repositories`: JSON catalog of tracked repositories and branch configurations.
-- `ufs-chem://guidelines/{category}`: Review guidelines and pitfalls for specific categories (e.g., `chemistry_physics`, `esmf_nuopc`, `overengineering`).
+- `ufs-chem://guidelines`: JSON index listing all available guideline categories and descriptions.
+- `ufs-chem://guidelines/{category}`: Full markdown guidelines and reviewer instructions for specific categories (`fortran`, `cpp`, `bash`, `python`, `ee2`, `hpc-libraries`, `chemistry_physics`, `esmf_nuopc`, `ponytail`).
 
 ### Prompts
 - `review_pr`: Prompting template that guides the user's client LLM through an atmospheric chemistry pull request review workflow. See [**`docs/example-prompts.md`**](docs/example-prompts.md) for usage patterns.
@@ -209,3 +210,17 @@ uv run ruff check
 uv run ruff format --check
 uv run yamllint .
 ```
+
+---
+
+## Acknowledgements
+
+The code quality definitions, reviewer personas, and high-performance computing guidelines embedded in [`src/ufs_chem_pr_review_mcp/resources/guidelines/`](src/ufs_chem_pr_review_mcp/resources/guidelines/) and [`.agents/rules/`](.agents/rules/) are sourced from the NOAA NWS Office of Modeling and Development (OMD) and NCO HPC Environment Equivalence (EE2) instructions developed by Barry Baker ([@bbakernoaa](https://github.com/bbakernoaa)) in [`bbakernoaa/template-test`](https://github.com/bbakernoaa/template-test/tree/develop/.github/instructions).
+
+These include:
+- **Flux Protocol** ([`fortran.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/fortran.instructions.md)): Modern Fortran (2018+) standards, explicit typing, pure compute kernels, and OpenMP variable scoping.
+- **Forge Protocol** ([`cpp.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/cpp.instructions.md)): Modern C++23 standards, strict RAII, and Fortran column-major memory layout interoperability (`std::mdspan`).
+- **Aero Protocol** ([`python.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/python.instructions.md)): Python standards for meteorological data processing, Pangeo ecosystem (`xarray`, `dask`), and lazy task graphs.
+- **NCO EE2 Standards** ([`ee2-standards.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/ee2-standards.md)): HPC Environment Equivalence operational production rules and error-handling hierarchies.
+- **HPC Scientific Libraries** ([`hpc-libraries.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/hpc-libraries.md)): ESMF/NUOPC return code validation, ParallelIO (PIO), parallel NetCDF-4, and Zarr.
+- **Bash Standards** ([`bash.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/bash.instructions.md)): Google Shell style and EE2 J-Job hierarchy.

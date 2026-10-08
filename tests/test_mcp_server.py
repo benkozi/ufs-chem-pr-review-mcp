@@ -184,7 +184,34 @@ async def test_resources_and_prompts(mcp_server_fixture: FastMCP) -> None:
     assert repo_resource is not None
     assert "ufs-community/CATChem" in _res_text(repo_resource)
 
-    # Test guidelines resource
+    # Test guidelines list resource
+    all_guidelines = await mcp_server_fixture.read_resource("ufs-chem://guidelines")
+    assert all_guidelines is not None
+    guidelines_list = json.loads(_res_text(all_guidelines))
+    assert isinstance(guidelines_list, list)
+    categories = [g["category"] for g in guidelines_list]
+    assert "fortran" in categories
+    assert "cpp" in categories
+    assert "ee2" in categories
+
+    # Test file-backed guidelines resources
+    fortran_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/fortran"
+    )
+    assert "Flux" in _res_text(fortran_guide)
+
+    cpp_guide = await mcp_server_fixture.read_resource("ufs-chem://guidelines/cpp")
+    assert "Forge" in _res_text(cpp_guide)
+
+    ee2_guide = await mcp_server_fixture.read_resource("ufs-chem://guidelines/ee2")
+    assert "Environment Equivalence" in _res_text(ee2_guide)
+
+    unknown_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/nonexistent"
+    )
+    assert "No specific guidelines registered" in _res_text(unknown_guide)
+
+    # Test guidelines resource fallback dictionary
     guide_resource = await mcp_server_fixture.read_resource(
         "ufs-chem://guidelines/chemistry_physics"
     )
@@ -199,6 +226,7 @@ async def test_resources_and_prompts(mcp_server_fixture: FastMCP) -> None:
     assert prompt is not None
     msg_content = prompt.messages[0].content
     assert "evaluate_pr" in getattr(msg_content, "text", str(msg_content))
+    assert "Flux Fortran" in getattr(msg_content, "text", str(msg_content))
 
 
 @pytest.mark.asyncio

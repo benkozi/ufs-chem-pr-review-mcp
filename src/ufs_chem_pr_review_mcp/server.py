@@ -437,9 +437,79 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         repos = db.list_repositories()
         return json.dumps(repos, indent=2)
 
+    @mcp.resource("ufs-chem://guidelines")
+    def list_guidelines_resource() -> str:
+        """JSON listing of all available guideline categories and their descriptions."""
+        categories = [
+            {
+                "category": "fortran",
+                "uri": "ufs-chem://guidelines/fortran",
+                "description": "OMD Fortran 2018+ standards (Flux Protocol): explicit typing, OpenMP default(none), pure compute kernels.",
+            },
+            {
+                "category": "cpp",
+                "uri": "ufs-chem://guidelines/cpp",
+                "description": "OMD C++23 standards (Forge Protocol): strict RAII, std::mdspan Fortran layout, Kokkos abstractions.",
+            },
+            {
+                "category": "bash",
+                "uri": "ufs-chem://guidelines/bash",
+                "description": "OMD Bash standards: set -euo pipefail, Google style, EE2 J-Job hierarchy, no background processes.",
+            },
+            {
+                "category": "python",
+                "uri": "ufs-chem://guidelines/python",
+                "description": "OMD Python standards (Aero Protocol): Pangeo stack, lazy Dask execution, typed APIs.",
+            },
+            {
+                "category": "ee2",
+                "uri": "ufs-chem://guidelines/ee2",
+                "description": "NCO HPC Environment Equivalence (EE2): standard operational paths ($DATA, $COMROOT), standard fatal error prefixes.",
+            },
+            {
+                "category": "hpc-libraries",
+                "uri": "ufs-chem://guidelines/hpc-libraries",
+                "description": "HPC scientific libraries: ESMF return code checking, ParallelIO (PIO), NetCDF-4 collective I/O, Zarr cloud data.",
+            },
+            {
+                "category": "chemistry_physics",
+                "uri": "ufs-chem://guidelines/chemistry_physics",
+                "description": "Chemistry & Physics guidelines: molecular weights, molar-to-mass mixing ratios, mass conservation.",
+            },
+            {
+                "category": "esmf_nuopc",
+                "uri": "ufs-chem://guidelines/esmf_nuopc",
+                "description": "ESMF & NUOPC Cap guidelines: ESMF_StateGet error checking, field realization, clock coordination.",
+            },
+            {
+                "category": "ponytail",
+                "uri": "ufs-chem://guidelines/ponytail",
+                "description": "Ponytail over-engineering guidelines: dead code elimination, native constructs, YAGNI, shrinking code footprint.",
+            },
+        ]
+        return json.dumps(categories, indent=2)
+
     @mcp.resource("ufs-chem://guidelines/{category}")
     def get_guidelines_resource(category: str) -> str:
         """Markdown guidelines and common reviewer pitfalls for specific review categories."""
+        guidelines_dir = Path(__file__).parent / "resources" / "guidelines"
+        file_map = {
+            "fortran": "fortran.instructions.md",
+            "cpp": "cpp.instructions.md",
+            "c++": "cpp.instructions.md",
+            "bash": "bash.instructions.md",
+            "shell": "bash.instructions.md",
+            "python": "python.instructions.md",
+            "ee2": "ee2-standards.md",
+            "hpc-libraries": "hpc-libraries.md",
+            "hpc_libraries": "hpc-libraries.md",
+        }
+        normalized = category.lower().strip()
+        if normalized in file_map:
+            doc_file = guidelines_dir / file_map[normalized]
+            if doc_file.is_file():
+                return doc_file.read_text(encoding="utf-8")
+
         guidelines = {
             "chemistry_physics": (
                 "# Chemistry & Physics Review Guidelines\n\n"
@@ -478,7 +548,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             f"1. Call `evaluate_pr(repo='{repo}', pr_number={pr_number}, output_format='{output_format}', review_mode='{review_mode}')`.\n"
             "2. Audit for over-engineering (ponytail findings: delete, stdlib, native, yagni, shrink).\n"
             "3. Verify atmospheric chemistry physical unit consistency, molecular weights, and ESMF return checks.\n"
-            "4. Provide the critical review summary and format inline suggestions using ```suggestion blocks or patch hunks so the user can immediately apply them."
+            "4. Verify NOAA OMD coding standards (Flux Fortran, Forge C++, Aero Python) and NCO EE2 operational requirements.\n"
+            "5. Provide the critical review summary and format inline suggestions using ```suggestion blocks or patch hunks so the user can immediately apply them."
         )
 
     return mcp
