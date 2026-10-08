@@ -15,7 +15,7 @@ repositories:
     url: https://github.com/benkozi/ufs-chem-assay
     default_branch: develop
     enabled: true
-  - name: bbakernoaa/HELM-Project
-    url: https://github.com/bbakernoaa/HELM-Project
+  - name: noaa-emc/HELM
+    url: https://github.com/noaa-emc/HELM
     default_branch: main
     enabled: true

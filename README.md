@@ -34,7 +34,7 @@ Configured in [`config/repositories.yaml`](file:///Users/bkoziol/sandbox/git-ben
 - `ufs-community/CECE`: Chemistry Emissions and Chemistry Evaluator
 - `ufs-community/ufs-chem-container`: Containerized build and run environments for UFS-Chem
 - `benkozi/ufs-chem-assay`: Benchmarking and validation harnesses
-- `bbakernoaa/HELM-Project`: Atmospheric composition and air quality modeling tools
+- `noaa-emc/HELM`: Atmospheric composition and air quality modeling tools
 
 ---
 
