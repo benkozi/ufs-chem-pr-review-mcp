@@ -1,5 +1,6 @@
-"""GitHub REST API client for fetching PRs, diffs, comments, and commits."""
-
+import os
+import shutil
+import subprocess
 from typing import Any
 
 import httpx
@@ -11,6 +12,42 @@ logger = get_logger("ingest.client")
 
 class GitHubApiError(Exception):
     """Exception raised when a GitHub API request fails or is rate-limited."""
+
+
+def resolve_github_token(explicit_token: str | None = None) -> str | None:
+    """Resolve GitHub token from explicit arg, environment variables, or gh CLI.
+
+    Resolution order:
+    1. Explicitly provided token (if non-empty)
+    2. UFS_CHEM_GITHUB_TOKEN environment variable
+    3. GITHUB_TOKEN environment variable
+    4. gh auth token via GitHub CLI
+    """
+    if explicit_token and explicit_token.strip():
+        return explicit_token.strip()
+
+    for var in ("UFS_CHEM_GITHUB_TOKEN", "GITHUB_TOKEN"):
+        val = os.environ.get(var)
+        if val and val.strip():
+            return val.strip()
+
+    gh_bin = shutil.which("gh")
+    if gh_bin:
+        try:
+            proc = subprocess.run(
+                [gh_bin, "auth", "token"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5.0,
+            )
+            token = proc.stdout.strip()
+            if proc.returncode == 0 and token:
+                return token
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+    return None
 
 
 class GitHubClient:

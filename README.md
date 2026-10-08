@@ -43,6 +43,18 @@ Configured in [`config/repositories.yaml`](file:///Users/bkoziol/sandbox/git-ben
 ### Prerequisites
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/) package manager
+- Authenticated GitHub access: either [GitHub CLI (`gh`)](https://cli.github.com/) logged in via `gh auth login`, or a Personal Access Token (`UFS_CHEM_GITHUB_TOKEN` / `GITHUB_TOKEN`).
+
+### Authentication & Token Resolution
+
+GitHub credentials are automatically resolved in the following priority order:
+1. Explicit CLI argument: `--token <PAT>`
+2. Application environment variable: `UFS_CHEM_GITHUB_TOKEN`
+3. Standard environment variable: `GITHUB_TOKEN`
+4. Local GitHub CLI credentials: `gh auth token`
+
+> [!NOTE]
+> If you already use `gh` (e.g. `gh auth login` with read-only or repo access), no manual token configuration is necessary! The server and sync tool will automatically detect and use your session.
 
 ### Install
 ```bash
@@ -66,8 +78,7 @@ uv sync --all-groups
         "ufs-chem-pr-review-mcp"
       ],
       "env": {
-        "UFS_CHEM_GITHUB_TOKEN": "ghp_your_token_here",
-        "UFS_CHEM_DB_PATH": "/absolute/path/to/ufs-chem-pr-review-mcp/data/reviews.sqlite3",
+        "UFS_CHEM_DB_PATH": "/absolute/path/to/ufs-chem-pr-review-mcp/data/ufs_chem_reviews.sqlite3",
         "UFS_CHEM_LOG_LEVEL": "INFO"
       }
     }
@@ -85,10 +96,7 @@ uv sync --all-groups
     "/absolute/path/to/ufs-chem-pr-review-mcp",
     "run",
     "ufs-chem-pr-review-mcp"
-  ],
-  "env": {
-    "UFS_CHEM_GITHUB_TOKEN": "ghp_your_token_here"
-  }
+  ]
 }
 ```
 
@@ -96,11 +104,17 @@ uv sync --all-groups
 
 ## CLI Sync Usage
 
-Use `ufs-chem-pr-review-sync` to populate and refresh your local review database from GitHub:
+Use `ufs-chem-pr-review-sync` to populate and refresh your local review database from GitHub.
+
+> [!IMPORTANT]
+> Synchronization strictly requires a GitHub token (via `--token`, `UFS_CHEM_GITHUB_TOKEN`, `GITHUB_TOKEN`, or local `gh auth login`). Unauthenticated sync is blocked to prevent consuming anonymous rate limits.
 
 ```bash
-# Sync all configured repositories
+# Sync all configured repositories (uses gh auth token if logged in)
 uv run ufs-chem-pr-review-sync --config config/repositories.yaml
+
+# Sync with an explicit token
+uv run ufs-chem-pr-review-sync --token "ghp_your_token_here"
 
 # Sync a specific repository with optional pruning (opt-in for large datasets)
 uv run ufs-chem-pr-review-sync \

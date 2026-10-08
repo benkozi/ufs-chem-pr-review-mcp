@@ -1,12 +1,16 @@
-"""Unit tests for GitHub client and ingestion syncer."""
-
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 import respx
 
 from ufs_chem_pr_review_mcp.db.repository import ReviewDatabase
-from ufs_chem_pr_review_mcp.ingest.client import GitHubApiError, GitHubClient
+from ufs_chem_pr_review_mcp.ingest.client import (
+    GitHubApiError,
+    GitHubClient,
+    resolve_github_token,
+)
 from ufs_chem_pr_review_mcp.ingest.syncer import sync_repository
 
 
@@ -280,3 +284,78 @@ def test_sync_repository_commit_detail_failure(tmp_db_path: Path) -> None:
 
     synced = sync_repository(client, db, "test/repo", "https://github.com/test/repo")
     assert synced == 1
+
+
+def test_resolve_github_token_explicit() -> None:
+    assert resolve_github_token("explicit_tok") == "explicit_tok"
+    assert resolve_github_token("   spaced_tok   ") == "spaced_tok"
+
+
+def test_resolve_github_token_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UFS_CHEM_GITHUB_TOKEN", "ufs_token")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh_token")
+    assert resolve_github_token() == "ufs_token"
+
+    monkeypatch.delenv("UFS_CHEM_GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh_token")
+    assert resolve_github_token() == "gh_token"
+
+
+def test_resolve_github_token_gh_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("UFS_CHEM_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    monkeypatch.setattr(
+        "shutil.which", lambda cmd: "/usr/local/bin/gh" if cmd == "gh" else None
+    )
+
+    class MockCompletedProcess:
+        returncode = 0
+        stdout = "gh_token_123\n"
+        stderr = ""
+
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: MockCompletedProcess(),
+    )
+    assert resolve_github_token() == "gh_token_123"
+
+
+def test_resolve_github_token_gh_cli_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("UFS_CHEM_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/gh")
+
+    class MockFailedProcess:
+        returncode = 1
+        stdout = ""
+        stderr = "not logged in"
+
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: MockFailedProcess(),
+    )
+    assert resolve_github_token() is None
+
+
+def test_resolve_github_token_gh_cli_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("UFS_CHEM_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/gh")
+
+    def mock_raise(*args: Any, **kwargs: Any) -> Any:
+        raise subprocess.TimeoutExpired(cmd="gh", timeout=5.0)
+
+    monkeypatch.setattr("subprocess.run", mock_raise)
+    assert resolve_github_token() is None
+
+
+def test_resolve_github_token_no_gh_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("UFS_CHEM_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr("shutil.which", lambda cmd: None)
+    assert resolve_github_token() is None

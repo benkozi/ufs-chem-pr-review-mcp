@@ -7,6 +7,7 @@ from ufs_chem_pr_review_mcp.ingest.classifier import (
 from ufs_chem_pr_review_mcp.ingest.client import (
     GitHubApiError,
     GitHubClient,
+    resolve_github_token,
 )
 from ufs_chem_pr_review_mcp.ingest.diff_tracker import (
     determine_followup_status,
@@ -21,5 +22,6 @@ __all__ = [
     "detect_language",
     "determine_followup_status",
     "normalize_fortran_continuations",
+    "resolve_github_token",
     "sync_repository",
 ]

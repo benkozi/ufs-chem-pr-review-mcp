@@ -12,7 +12,11 @@ from mcp.types import ToolAnnotations
 from ufs_chem_pr_review_mcp.config import Settings
 from ufs_chem_pr_review_mcp.db.repository import ReviewDatabase
 from ufs_chem_pr_review_mcp.ingest.classifier import detect_language
-from ufs_chem_pr_review_mcp.ingest.client import GitHubApiError, GitHubClient
+from ufs_chem_pr_review_mcp.ingest.client import (
+    GitHubApiError,
+    GitHubClient,
+    resolve_github_token,
+)
 from ufs_chem_pr_review_mcp.ingest.diff_tracker import normalize_fortran_continuations
 from ufs_chem_pr_review_mcp.logs import configure_logging, get_logger
 from ufs_chem_pr_review_mcp.models.common import (
@@ -298,7 +302,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         include_ponytail_audit: bool = True,
         max_context_comments: int = 15,
     ) -> str:
-        client = GitHubClient(token=settings.github_token)
+        token = resolve_github_token(settings.github_token)
+        client = GitHubClient(token=token)
         try:
             diff_text = client.get_pr_diff(repo, pr_number)
         except GitHubApiError as e:

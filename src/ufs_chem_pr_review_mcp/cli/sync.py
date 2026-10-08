@@ -7,7 +7,7 @@ from pathlib import Path
 from ufs_chem_pr_review_mcp.config import Settings, load_repositories_config
 from ufs_chem_pr_review_mcp.db.pruning import prune_database
 from ufs_chem_pr_review_mcp.db.repository import ReviewDatabase
-from ufs_chem_pr_review_mcp.ingest.client import GitHubClient
+from ufs_chem_pr_review_mcp.ingest.client import GitHubClient, resolve_github_token
 from ufs_chem_pr_review_mcp.ingest.syncer import sync_repository
 from ufs_chem_pr_review_mcp.logs import configure_logging, get_logger
 
@@ -37,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help="Specific repository name to sync (e.g. ufs-community/CATChem).",
+    )
+    parser.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="GitHub Personal Access Token (overrides settings/gh CLI).",
     )
     parser.add_argument(
         "--retention-days",
@@ -72,11 +78,19 @@ def main(argv: list[str] | None = None) -> int:
         logger.error(f"Error loading repository configuration: {e}")
         sys.exit(1)
 
+    token = resolve_github_token(args.token or settings.github_token)
+    if not token:
+        logger.error(
+            "GitHub authentication required: 'gh' is not authenticated. "
+            "Please authenticate via 'gh auth login' or provide a token via --token, UFS_CHEM_GITHUB_TOKEN, or GITHUB_TOKEN."
+        )
+        sys.exit(1)
+
     db_path = args.db or settings.db_path
     db = ReviewDatabase(db_path)
     db.init_schema()
 
-    client = GitHubClient(token=settings.github_token)
+    client = GitHubClient(token=token)
 
     try:
         repos_to_sync = [

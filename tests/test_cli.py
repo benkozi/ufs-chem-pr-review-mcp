@@ -63,6 +63,8 @@ repositories:
             str(cfg_file),
             "--db",
             str(db_file),
+            "--token",
+            "mock_token",
             "--repo",
             "test/repoA",
             "--retention-days",
@@ -93,6 +95,8 @@ repositories:
             str(cfg_file),
             "--db",
             str(db_file),
+            "--token",
+            "mock_token",
         ]
     )
     assert ret == 0
@@ -118,6 +122,73 @@ repositories:
         raise RuntimeError("Network boom")
 
     monkeypatch.setattr("ufs_chem_pr_review_mcp.cli.sync.sync_repository", mock_fail)
+    ret = main(
+        [
+            "--config",
+            str(cfg_file),
+            "--db",
+            str(db_file),
+            "--token",
+            "mock_token",
+        ]
+    )
+    assert ret == 0
+
+
+def test_cli_blocked_without_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_file = tmp_path / "cli_test.sqlite3"
+    cfg_file = tmp_path / "repos.yaml"
+    cfg_file.write_text(
+        """
+repositories:
+  - name: test/repoA
+    url: https://github.com/test/repoA
+    default_branch: main
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "ufs_chem_pr_review_mcp.cli.sync.resolve_github_token",
+        lambda *args, **kwargs: None,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "--config",
+                str(cfg_file),
+                "--db",
+                str(db_file),
+            ]
+        )
+    assert exc_info.value.code == 1
+
+
+def test_cli_token_via_gh_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_file = tmp_path / "cli_test.sqlite3"
+    cfg_file = tmp_path / "repos.yaml"
+    cfg_file.write_text(
+        """
+repositories:
+  - name: test/repoA
+    url: https://github.com/test/repoA
+    default_branch: main
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "ufs_chem_pr_review_mcp.cli.sync.resolve_github_token",
+        lambda *args, **kwargs: "token_from_gh",
+    )
+    monkeypatch.setattr(
+        "ufs_chem_pr_review_mcp.cli.sync.sync_repository", lambda *args, **kwargs: 1
+    )
+
     ret = main(
         [
             "--config",
