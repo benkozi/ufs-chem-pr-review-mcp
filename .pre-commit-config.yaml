@@ -1,0 +1,54 @@
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+repos:
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages:
+          - commit-msg
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args:
+          - --markdown-linebreak-ext=md
+        exclude: ^(design/|uv\.lock$)
+      - id: end-of-file-fixer
+        exclude: ^(design/|uv\.lock$)
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        types:
+          - python
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types:
+          - python
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types:
+          - python
+        pass_filenames: false
+      - id: yamlfix
+        name: yamlfix
+        entry: uv run yamlfix
+        language: system
+        types:
+          - yaml
+        exclude: ^design/
+      - id: yamllint
+        name: yamllint
+        entry: uv run yamllint --strict
+        language: system
+        types:
+          - yaml
+        exclude: ^design/

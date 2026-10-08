@@ -1,0 +1,21 @@
+repositories:
+  - name: ufs-community/CATChem
+    url: https://github.com/ufs-community/CATChem
+    default_branch: develop
+    enabled: true
+  - name: ufs-community/CECE
+    url: https://github.com/ufs-community/CECE
+    default_branch: develop
+    enabled: true
+  - name: ufs-community/ufs-chem-container
+    url: https://github.com/ufs-community/ufs-chem-container
+    default_branch: main
+    enabled: true
+  - name: benkozi/ufs-chem-assay
+    url: https://github.com/benkozi/ufs-chem-assay
+    default_branch: develop
+    enabled: true
+  - name: bbakernoaa/HELM-Project
+    url: https://github.com/bbakernoaa/HELM-Project
+    default_branch: main
+    enabled: true

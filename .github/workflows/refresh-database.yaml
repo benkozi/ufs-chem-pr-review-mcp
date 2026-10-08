@@ -1,0 +1,48 @@
+name: Refresh Review Database
+
+on:
+  schedule:
+    # Run every Sunday at 04:00 UTC
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Pruning retention days'
+        required: false
+        default: '180'
+        type: string
+
+jobs:
+  sync-reviews:
+    name: Sync Historical Pull Request Reviews
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run review synchronization CLI
+        env:
+          UFS_CHEM_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run ufs-chem-pr-review-sync \
+            --config config/repositories.yaml \
+            --db data/reviews.sqlite3 \
+            --retention-days ${{ inputs.retention_days || '180' }}
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviews-sqlite3
+          path: data/reviews.sqlite3
+          retention-days: 90
