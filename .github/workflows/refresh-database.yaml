@@ -1,0 +1,59 @@
+name: Refresh Review Database
+
+on:
+  schedule:
+    # Run every Sunday at 04:00 UTC
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-reviews:
+    name: Sync Historical Pull Request Reviews
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run review synchronization CLI
+        env:
+          UFS_CHEM_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run ufs-chem-pr-review-sync \
+            --config config/repositories.yaml \
+            --db data/ufs_chem_reviews.sqlite3
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(data): refresh historical review database"
+          title: "chore(data): refresh historical review database"
+          body: |
+            Automated weekly refresh of historical UFS-Chem PR reviews and comments.
+
+            - Synced latest reviews across monitored repositories.
+          branch: chore/refresh-review-database
+          base: main
+          delete-branch: true
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ufs-chem-reviews-sqlite3
+          path: data/ufs_chem_reviews.sqlite3
+          retention-days: 90
