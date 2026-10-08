@@ -142,12 +142,15 @@ docker build -t ufs-chem-pr-review-mcp:latest .
 
 ---
 
-### 4. Verification
+### 4. Verification & Example Prompts
 
 After saving your configuration and restarting your client:
 1. In Antigravity / Gemini: Open **Additional Options (...) > MCP Servers** and confirm `ufs-chem-pr-review` is connected.
 2. Test a query with the assistant:
    > *"Show me review statistics for ufs-community/CATChem using ufs-chem-pr-review."*
+
+> [!TIP]
+> Check out [**`docs/example-prompts.md`**](docs/example-prompts.md) for a comprehensive collection of copy-pasteable prompt recipes covering live PR evaluations, local diff auditing, historical precedent search, and patch generation.
 
 
 ## CLI Sync Usage
@@ -188,7 +191,7 @@ uv run ufs-chem-pr-review-sync \
 - `ufs-chem://guidelines/{category}`: Review guidelines and pitfalls for specific categories (e.g., `chemistry_physics`, `esmf_nuopc`, `overengineering`).
 
 ### Prompts
-- `review_pr`: Prompting template that guides the user's client LLM through an atmospheric chemistry pull request review workflow.
+- `review_pr`: Prompting template that guides the user's client LLM through an atmospheric chemistry pull request review workflow. See [**`docs/example-prompts.md`**](docs/example-prompts.md) for usage patterns.
 
 ---
 
