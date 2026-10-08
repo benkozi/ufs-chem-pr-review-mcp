@@ -102,7 +102,7 @@ Use `ufs-chem-pr-review-sync` to populate and refresh your local review database
 # Sync all configured repositories
 uv run ufs-chem-pr-review-sync --config config/repositories.yaml
 
-# Sync a specific repository with pruning
+# Sync a specific repository with optional pruning (opt-in for large datasets)
 uv run ufs-chem-pr-review-sync \
   --repo ufs-community/CATChem \
   --retention-days 180 \

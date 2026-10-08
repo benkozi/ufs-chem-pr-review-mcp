@@ -5,12 +5,6 @@ on:
     # Run every Sunday at 04:00 UTC
     - cron: '0 4 * * 0'
   workflow_dispatch:
-    inputs:
-      retention_days:
-        description: 'Pruning retention days'
-        required: false
-        default: '180'
-        type: string
 
 permissions:
   contents: write
@@ -41,8 +35,7 @@ jobs:
         run: |
           uv run ufs-chem-pr-review-sync \
             --config config/repositories.yaml \
-            --db data/ufs_chem_reviews.sqlite3 \
-            --retention-days ${{ inputs.retention_days || '180' }}
+            --db data/ufs_chem_reviews.sqlite3
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
@@ -54,7 +47,6 @@ jobs:
             Automated weekly refresh of historical UFS-Chem PR reviews and comments.
 
             - Synced latest reviews across monitored repositories.
-            - Pruned older records per retention policy.
           branch: chore/refresh-review-database
           base: main
           delete-branch: true
