@@ -27,8 +27,10 @@ from ufs_chem_pr_review_mcp.models.common import (
     SupportedLanguage,
 )
 from ufs_chem_pr_review_mcp.models.github import (
+    ExistingPrComment,
     GitHubInlineComment,
     GitHubReviewPayload,
+    parse_github_pr_url,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     DomainFinding,
@@ -78,6 +80,7 @@ def _build_context_response(
     include_ponytail: bool,
     max_context_comments: int,
     db: ReviewDatabase,
+    existing_pr_comments: list[ExistingPrComment] | None = None,
 ) -> ReviewContextResponse:
     """Analyze diff, run rules, and retrieve historical context."""
     file_diffs = _split_diff_by_file(diff_text)
@@ -138,6 +141,7 @@ def _build_context_response(
         domain_findings=domain_findings,
         suggested_patches=suggested_patches,
         diff_text=diff_text,
+        existing_pr_comments=existing_pr_comments or [],
         critical_summary_prompt=prompt,
     )
 
@@ -179,6 +183,25 @@ def _render_markdown(ctx: ReviewContextResponse) -> str:
         lines.append("")
 
     if ctx.review_mode in (ReviewMode.SUMMARY_AND_INLINE, ReviewMode.INLINE_ONLY):
+        if ctx.existing_pr_comments:
+            lines.append("### Existing PR Discussions & Pending Drafts")
+            for epc in ctx.existing_pr_comments:
+                draft_prefix = "[PENDING REVIEW DRAFT] " if epc.is_pending else ""
+                loc = (
+                    f"`{epc.path}:{epc.line}`"
+                    if epc.path and epc.line
+                    else "Conversation thread"
+                )
+                body_preview = (
+                    epc.body.strip().splitlines()[0] if epc.body.strip() else ""
+                )
+                if len(body_preview) > 120:
+                    body_preview = body_preview[:117] + "..."
+                lines.append(
+                    f"- {draft_prefix}**@{epc.author}** ({loc}): {body_preview}"
+                )
+            lines.append("")
+
         if ctx.domain_findings:
             lines.append("### Domain Findings & Inline Recommendations")
             for df in ctx.domain_findings:
@@ -243,13 +266,96 @@ def _render_github_json(ctx: ReviewContextResponse) -> str:
 
 
 def _format_context_response(ctx: ReviewContextResponse, output_format: str) -> str:
-    """Format ReviewContextResponse into specified OutputFormat (patch, github_json, or markdown)."""
+    """Format ReviewContextResponse into specified OutputFormat (patch, github_json, json, or markdown)."""
     fmt = OutputFormat(output_format)
     if fmt == OutputFormat.PATCH:
         return build_unified_diff_patch(ctx.suggested_patches).patch_text
     if fmt == OutputFormat.GITHUB_JSON:
         return _render_github_json(ctx)
+    if fmt == OutputFormat.JSON:
+        return ctx.model_dump_json(indent=2)
     return _render_markdown(ctx)
+
+
+def _parse_existing_comments(
+    pr_comments: list[dict[str, Any]],
+    issue_comments: list[dict[str, Any]],
+    pending_comments: list[dict[str, Any]],
+) -> list[ExistingPrComment]:
+    """Parse raw GitHub API comments into strongly typed ExistingPrComment models."""
+    existing: list[ExistingPrComment] = []
+    seen_ids: set[int] = set()
+
+    for c in pr_comments:
+        cid = c.get("id")
+        if cid is not None and cid in seen_ids:
+            continue
+        if cid is not None:
+            seen_ids.add(cid)
+        user = c.get("user")
+        author = user.get("login", "unknown") if isinstance(user, dict) else "unknown"
+        existing.append(
+            ExistingPrComment(
+                comment_id=cid,
+                author=author,
+                body=c.get("body", ""),
+                created_at=c.get("created_at"),
+                path=c.get("path"),
+                line=c.get("line") or c.get("original_line"),
+                side=c.get("side", "RIGHT"),
+                is_pending=False,
+                review_id=c.get("pull_request_review_id"),
+                in_reply_to_id=c.get("in_reply_to_id"),
+            )
+        )
+
+    for c in issue_comments:
+        cid = c.get("id")
+        if cid is not None and cid in seen_ids:
+            continue
+        if cid is not None:
+            seen_ids.add(cid)
+        user = c.get("user")
+        author = user.get("login", "unknown") if isinstance(user, dict) else "unknown"
+        existing.append(
+            ExistingPrComment(
+                comment_id=cid,
+                author=author,
+                body=c.get("body", ""),
+                created_at=c.get("created_at"),
+                path=None,
+                line=None,
+                side="RIGHT",
+                is_pending=False,
+                review_id=None,
+                in_reply_to_id=None,
+            )
+        )
+
+    for c in pending_comments:
+        cid = c.get("id")
+        if cid is not None and cid in seen_ids:
+            continue
+        if cid is not None:
+            seen_ids.add(cid)
+        user = c.get("user")
+        author = user.get("login", "unknown") if isinstance(user, dict) else "unknown"
+        existing.append(
+            ExistingPrComment(
+                comment_id=cid,
+                author=author,
+                body=c.get("body", ""),
+                created_at=c.get("created_at"),
+                path=c.get("path"),
+                line=c.get("line") or c.get("original_line"),
+                side=c.get("side", "RIGHT"),
+                is_pending=True,
+                review_id=c.get("review_id"),
+                in_reply_to_id=c.get("in_reply_to_id"),
+            )
+        )
+
+    return existing
 
 
 def create_mcp_server(db_path: Path | None = None) -> FastMCP:
@@ -295,17 +401,43 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         description="Evaluates a GitHub pull request in a UFS-Chem repository. Parses the PR diff, retrieves matching historical review comments, runs ponytail and domain audits, and outputs structured review context.",
     )
     def evaluate_pr(
-        repo: str,
-        pr_number: int,
+        repo: str | None = None,
+        pr_number: int | None = None,
+        pr_url: str | None = None,
         output_format: str = "markdown",
         review_mode: str = "summary_and_inline",
         include_ponytail_audit: bool = True,
         max_context_comments: int = 15,
     ) -> str:
+        if pr_url:
+            try:
+                comp = parse_github_pr_url(pr_url)
+                target_repo = comp.full_repo
+                target_pr = comp.pr_number
+            except ValueError as e:
+                return json.dumps(
+                    {"error": str(e), "message": "Invalid pr_url provided."}
+                )
+        elif repo and pr_number:
+            target_repo = repo
+            target_pr = pr_number
+        else:
+            return json.dumps(
+                {
+                    "error": "Missing arguments",
+                    "message": "Must provide either pr_url or both repo and pr_number.",
+                }
+            )
+
         token = resolve_github_token(settings.github_token)
         client = GitHubClient(token=token)
         try:
-            diff_text = client.get_pr_diff(repo, pr_number)
+            diff_text = client.get_pr_diff(target_repo, target_pr)
+            pr_comments = client.get_pr_comments(target_repo, target_pr)
+            issue_comments = client.get_issue_comments(target_repo, target_pr)
+            pending_comments = client.get_pending_review_comments(
+                target_repo, target_pr
+            )
         except GitHubApiError as e:
             return json.dumps(
                 {"error": str(e), "message": "Failed to fetch PR diff from GitHub."}
@@ -313,14 +445,21 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         finally:
             client.close()
 
+        existing_comments = _parse_existing_comments(
+            pr_comments=pr_comments,
+            issue_comments=issue_comments,
+            pending_comments=pending_comments,
+        )
+
         ctx = _build_context_response(
             diff_text=diff_text,
-            target_repo=repo,
-            pr_number=pr_number,
+            target_repo=target_repo,
+            pr_number=target_pr,
             review_mode=ReviewMode(review_mode),
             include_ponytail=include_ponytail_audit,
             max_context_comments=max_context_comments,
             db=db,
+            existing_pr_comments=existing_comments,
         )
         return _format_context_response(ctx, output_format)
 

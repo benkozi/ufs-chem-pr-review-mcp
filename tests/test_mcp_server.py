@@ -71,6 +71,15 @@ async def test_evaluate_pr_tool(mcp_server_fixture: FastMCP) -> None:
         text="diff --git a/chem/rates.F90 b/chem/rates.F90\n--- a/chem/rates.F90\n+++ b/chem/rates.F90\n@@ -10,3 +10,4 @@\n+  rate = 1.0 * temp\n",
         headers={"content-type": "application/vnd.github.v3.diff"},
     )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/12/comments"
+    ).respond(json=[])
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/issues/12/comments"
+    ).respond(json=[])
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/12/reviews"
+    ).respond(json=[])
     result = await mcp_server_fixture.call_tool(
         "evaluate_pr",
         {
@@ -312,6 +321,16 @@ async def test_evaluate_pr_formats_and_error(mcp_server_fixture: FastMCP) -> Non
         text="diff --git a/chem/rates.F90 b/chem/rates.F90\n--- a/chem/rates.F90\n+++ b/chem/rates.F90\n@@ -1,2 +1,3 @@\n+  x = 1.0 * y\n",
         headers={"content-type": "application/vnd.github.v3.diff"},
     )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/20/comments"
+    ).respond(json=[])
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/issues/20/comments"
+    ).respond(json=[])
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/20/reviews"
+    ).respond(json=[])
+
     res_patch = await mcp_server_fixture.call_tool(
         "evaluate_pr",
         {
@@ -354,6 +373,169 @@ async def test_evaluate_pr_formats_and_error(mcp_server_fixture: FastMCP) -> Non
     err_data = json.loads(_tool_text(res_err))
     assert "error" in err_data
     assert "Failed to fetch PR diff from GitHub" in err_data["message"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_evaluate_pr_with_url(mcp_server_fixture: FastMCP) -> None:
+    respx.get("https://api.github.com/repos/ufs-community/CATChem/pulls/50").respond(
+        text="diff --git a/chem/clean.F90 b/chem/clean.F90\n--- a/chem/clean.F90\n+++ b/chem/clean.F90\n@@ -1,2 +1,3 @@\n+  real(rk) :: rate = 1.0_rk\n",
+        headers={"content-type": "application/vnd.github.v3.diff"},
+    )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/50/comments"
+    ).respond(json=[])
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/issues/50/comments"
+    ).respond(json=[])
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/50/reviews"
+    ).respond(json=[])
+
+    res = await mcp_server_fixture.call_tool(
+        "evaluate_pr",
+        {
+            "pr_url": "https://github.com/ufs-community/CATChem/pull/50",
+            "output_format": "json",
+        },
+    )
+    data = json.loads(_tool_text(res))
+    assert data["repo"] == "ufs-community/CATChem"
+    assert data["pr_number"] == 50
+    assert "existing_pr_comments" in data
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_evaluate_pr_with_existing_and_pending_comments(
+    mcp_server_fixture: FastMCP,
+) -> None:
+    respx.get("https://api.github.com/repos/ufs-community/CATChem/pulls/77").respond(
+        text="diff --git a/chem/rates.F90 b/chem/rates.F90\n--- a/chem/rates.F90\n+++ b/chem/rates.F90\n@@ -1,2 +1,3 @@\n+  x = 1.0 * y\n",
+        headers={"content-type": "application/vnd.github.v3.diff"},
+    )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/77/comments"
+    ).respond(
+        json=[
+            {
+                "id": 1001,
+                "user": {"login": "peer_reviewer"},
+                "body": "Check molecular weight ratio here. " + "A" * 150,
+                "created_at": "2026-10-21T01:00:00Z",
+                "path": "chem/rates.F90",
+                "line": 2,
+                "side": "RIGHT",
+                "pull_request_review_id": 888,
+                "in_reply_to_id": None,
+            }
+        ]
+    )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/issues/77/comments"
+    ).respond(
+        json=[
+            {
+                "id": 2001,
+                "user": {"login": "issue_author"},
+                "body": "Working on CI test failures.",
+                "created_at": "2026-10-21T02:00:00Z",
+            }
+        ]
+    )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/77/reviews"
+    ).respond(
+        json=[
+            {
+                "id": 999,
+                "state": "PENDING",
+                "user": {"login": "user_dev"},
+            }
+        ]
+    )
+    respx.get(
+        "https://api.github.com/repos/ufs-community/CATChem/pulls/77/reviews/999/comments"
+    ).respond(
+        json=[
+            {
+                "id": 3001,
+                "user": {"login": "user_dev"},
+                "body": "Need to check divide-by-zero on radius.",
+                "created_at": "2026-10-21T03:00:00Z",
+                "path": "chem/rates.F90",
+                "line": 2,
+            }
+        ]
+    )
+
+    res_md = await mcp_server_fixture.call_tool(
+        "evaluate_pr",
+        {
+            "repo": "ufs-community/CATChem",
+            "pr_number": 77,
+            "output_format": "markdown",
+        },
+    )
+    text = _tool_text(res_md)
+    assert "Existing PR Discussions & Pending Drafts" in text
+    assert "@peer_reviewer" in text
+    assert "@issue_author" in text
+    assert "[PENDING REVIEW DRAFT] **@user_dev**" in text
+
+
+@pytest.mark.asyncio
+async def test_evaluate_pr_invalid_arguments(mcp_server_fixture: FastMCP) -> None:
+    # Invalid pr_url
+    res_bad_url = await mcp_server_fixture.call_tool(
+        "evaluate_pr",
+        {"pr_url": "invalid-url"},
+    )
+    data = json.loads(_tool_text(res_bad_url))
+    assert "error" in data
+    assert "Invalid pr_url provided" in data["message"]
+
+    # Missing arguments
+    res_missing = await mcp_server_fixture.call_tool(
+        "evaluate_pr",
+        {},
+    )
+    data_missing = json.loads(_tool_text(res_missing))
+    assert "Missing arguments" in data_missing["error"]
+
+
+def test_parse_existing_comments_edge_cases() -> None:
+    from ufs_chem_pr_review_mcp.server import _parse_existing_comments
+
+    pr_comments: list[dict[str, Any]] = [
+        {"id": 1, "user": None, "body": "c1", "path": "f.F90", "line": 1},
+        {"id": 1, "user": {"login": "dev"}, "body": "dup"},
+    ]
+    issue_comments: list[dict[str, Any]] = [
+        {"id": 1, "body": "dup from issue"},
+        {"id": 2, "user": "not-dict", "body": "c2"},
+    ]
+    pending_comments: list[dict[str, Any]] = [
+        {"id": 2, "body": "dup from pending"},
+        {
+            "id": 3,
+            "user": {"login": "me"},
+            "body": "c3",
+            "path": "f.F90",
+            "original_line": 5,
+        },
+    ]
+
+    parsed = _parse_existing_comments(pr_comments, issue_comments, pending_comments)
+    assert len(parsed) == 3
+    assert parsed[0].comment_id == 1
+    assert parsed[0].author == "unknown"
+    assert parsed[1].comment_id == 2
+    assert parsed[1].author == "unknown"
+    assert parsed[2].comment_id == 3
+    assert parsed[2].author == "me"
+    assert parsed[2].line == 5
+    assert parsed[2].is_pending is True
 
 
 @pytest.mark.asyncio

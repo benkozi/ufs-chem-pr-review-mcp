@@ -85,6 +85,63 @@ def test_github_client_rate_limit_error() -> None:
 
 
 @respx.mock
+def test_github_client_get_issue_and_review_comments() -> None:
+    client = GitHubClient(token="mock_token")
+
+    # Issue comments
+    respx.get("https://api.github.com/repos/test/repo/issues/1/comments").respond(
+        json=[{"id": 101, "body": "Discussion note", "user": {"login": "dev1"}}]
+    )
+    comments = client.get_issue_comments("test/repo", 1)
+    assert len(comments) == 1
+    assert comments[0]["id"] == 101
+
+    # PR reviews
+    respx.get("https://api.github.com/repos/test/repo/pulls/1/reviews").respond(
+        json=[{"id": 201, "state": "PENDING", "user": {"login": "reviewer1"}}]
+    )
+    reviews = client.get_pr_reviews("test/repo", 1)
+    assert len(reviews) == 1
+    assert reviews[0]["state"] == "PENDING"
+
+    # Review comments
+    respx.get(
+        "https://api.github.com/repos/test/repo/pulls/1/reviews/201/comments"
+    ).respond(
+        json=[{"id": 301, "body": "Draft finding", "path": "test.F90", "line": 5}]
+    )
+    rev_comments = client.get_review_comments("test/repo", 1, 201)
+    assert len(rev_comments) == 1
+    assert rev_comments[0]["id"] == 301
+
+    # Pending review comments aggregation
+    pending = client.get_pending_review_comments("test/repo", 1)
+    assert len(pending) == 1
+    assert pending[0]["is_pending"] is True
+    assert pending[0]["review_id"] == 201
+
+
+@respx.mock
+def test_github_client_get_pending_review_comments_errors() -> None:
+    client = GitHubClient(token="mock_token")
+
+    # Reviews failure should return empty list gracefully
+    respx.get("https://api.github.com/repos/test/repo/pulls/2/reviews").respond(
+        status_code=500, text="Internal Error"
+    )
+    assert client.get_pending_review_comments("test/repo", 2) == []
+
+    # Review comments failure on a specific review should log and continue
+    respx.get("https://api.github.com/repos/test/repo/pulls/3/reviews").respond(
+        json=[{"id": 501, "state": "PENDING"}, {"id": 502, "state": "COMMENTED"}]
+    )
+    respx.get(
+        "https://api.github.com/repos/test/repo/pulls/3/reviews/501/comments"
+    ).respond(status_code=500, text="Failed to fetch comments")
+    assert client.get_pending_review_comments("test/repo", 3) == []
+
+
+@respx.mock
 def test_sync_repository_end_to_end(tmp_db_path: Path) -> None:
     db = ReviewDatabase(tmp_db_path)
     db.init_schema()

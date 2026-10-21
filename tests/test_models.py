@@ -305,3 +305,61 @@ def test_github_inline_comment_rendered_body() -> None:
 def test_generate_patch_input() -> None:
     inp = GeneratePatchInput(patches=[])
     assert inp.patches == []
+
+
+def test_comment_validity_models() -> None:
+    from ufs_chem_pr_review_mcp.models import (
+        CommentValidity,
+        ExistingCommentEvaluation,
+        ExistingPrComment,
+        OutputFormat,
+    )
+
+    assert CommentValidity.VALID == "valid"
+    assert CommentValidity.INVALID == "invalid"
+    assert CommentValidity.OUTDATED == "outdated"
+    assert CommentValidity.PARTIALLY_VALID == "partially_valid"
+    assert OutputFormat.JSON == "json"
+
+    comment = ExistingPrComment(
+        comment_id=123,
+        author="reviewer1",
+        body="Variable x is uninitialized in loop",
+        created_at="2026-10-21T00:00:00Z",
+        path="chem/rates.F90",
+        line=42,
+        side="RIGHT",
+        is_pending=False,
+        review_id=999,
+        in_reply_to_id=None,
+    )
+    assert comment.author == "reviewer1"
+    assert not comment.is_pending
+
+    eval_model = ExistingCommentEvaluation(
+        comment=comment,
+        validity=CommentValidity.VALID,
+        validity_rationale="Uninitialized loop variable causes undefined behavior across MPI ranks",
+        is_addressed=False,
+        resolution_notes=None,
+        suggested_action="RESOLVE_WITH_PATCH",
+    )
+    assert eval_model.validity == CommentValidity.VALID
+    assert eval_model.suggested_action == "RESOLVE_WITH_PATCH"
+
+
+def test_evaluate_pr_input_with_pr_url() -> None:
+    from ufs_chem_pr_review_mcp.models import EvaluatePrInput
+
+    inp = EvaluatePrInput(
+        pr_url="https://github.com/ufs-community/CATChem/pull/123",
+    )
+    assert inp.pr_url == "https://github.com/ufs-community/CATChem/pull/123"
+    assert inp.repo is None
+    assert inp.pr_number is None
+
+    # Both missing should raise validation error
+    with pytest.raises(
+        ValueError, match="Must provide either pr_url or both repo and pr_number"
+    ):
+        EvaluatePrInput()

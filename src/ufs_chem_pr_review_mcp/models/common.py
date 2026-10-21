@@ -46,6 +46,7 @@ class OutputFormat(str, Enum):
     GITHUB_JSON = "github_json"
     MARKDOWN = "markdown"
     PATCH = "patch"
+    JSON = "json"
     BOTH = "both"
     ALL = "all"
 

@@ -179,7 +179,7 @@ uv run ufs-chem-pr-review-sync \
 ## MCP Server Capabilities
 
 ### Tools
-- `evaluate_pr`: Evaluates a GitHub PR by number, runs Ponytail and domain rules, retrieves matching historical review comments, and outputs structured review context.
+- `evaluate_pr`: Evaluates a GitHub PR by URL (`pr_url`) or repository & PR number (`repo`, `pr_number`). Pulls live unified diff, inline PR review comments, conversation threads, and pending review drafts. Runs Ponytail and domain rules, retrieves matching historical review comments, and outputs structured review context.
 - `evaluate_diff`: Analyzes raw unified diff text locally without making external GitHub API calls.
 - `search_review_history`: Performs full-text search (SQLite FTS5) across past review comments with repository, language, and category filters.
 - `get_repo_review_stats`: Returns review metrics, comment volumes, and top category patterns for a repository.
@@ -193,6 +193,26 @@ uv run ufs-chem-pr-review-sync \
 
 ### Prompts
 - `review_pr`: Prompting template that guides the user's client LLM through an atmospheric chemistry pull request review workflow. See [**`docs/example-prompts.md`**](docs/example-prompts.md) for usage patterns.
+
+---
+
+## Antigravity Workspace Skills
+
+The repository includes ready-to-use workspace skills in `.agents/skills/`:
+
+- **`refresh-review-db`** (`.agents/skills/refresh-review-db/SKILL.md`):
+  Syncs and updates the historical PR review database (`data/ufs_chem_reviews.sqlite3`) across configured UFS-Chem repositories. Automatically detects `gh` CLI auth, triggers incremental updates, and verifies DB health.
+  *Usage*: Prompt *"Refresh the review database"* or *"Sync reviews for ufs-community/CATChem"*.
+
+- **`review-pr`** (`.agents/skills/review-pr/SKILL.md`):
+  Runs an autonomous, multi-lens code review of a GitHub PR given its URL, writing the final prioritized review to a specified file.
+  - Automatically verifies DB freshness (>24h staleness guard with auto-sync).
+  - Always pulls down live inline comments, issue discussions, and unsubmitted pending review drafts.
+  - Critically evaluates prior comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`).
+  - Synthesizes Ponytail over-engineering metrics, NOAA OMD guidelines, and domain physics.
+  - Generates clickable repo line links, 1-click GitHub ````suggestion ```` blocks, and unified diff patches.
+  *Usage*: Prompt *"Review https://github.com/ufs-community/CATChem/pull/123 into reviews/pr-123.md"*.
+
 
 ---
 

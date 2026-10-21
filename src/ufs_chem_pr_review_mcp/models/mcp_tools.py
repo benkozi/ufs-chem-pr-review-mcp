@@ -1,6 +1,6 @@
 """Input and output schemas for MCP tools and resources."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ufs_chem_pr_review_mcp.models.common import (
     OutputFormat,
@@ -8,6 +8,7 @@ from ufs_chem_pr_review_mcp.models.common import (
     ReviewMode,
     SupportedLanguage,
 )
+from ufs_chem_pr_review_mcp.models.github import ExistingPrComment
 from ufs_chem_pr_review_mcp.models.patch import CodePatch
 from ufs_chem_pr_review_mcp.models.review import ReviewCommentRecord
 
@@ -39,12 +40,23 @@ class BaseEvaluateInput(BaseModel):
 class EvaluatePrInput(BaseEvaluateInput):
     """Input payload for evaluate_pr MCP tool."""
 
-    repo: str = Field(
-        description="Target repository in owner/repo format, e.g. 'ufs-community/CATChem'"
+    repo: str | None = Field(
+        default=None,
+        description="Target repository in owner/repo format, e.g. 'ufs-community/CATChem'",
     )
-    pr_number: int = Field(
-        ge=1, description="Pull request number on GitHub to evaluate"
+    pr_number: int | None = Field(
+        default=None, ge=1, description="Pull request number on GitHub to evaluate"
     )
+    pr_url: str | None = Field(
+        default=None,
+        description="Full GitHub PR URL (e.g. 'https://github.com/ufs-community/CATChem/pull/123')",
+    )
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "EvaluatePrInput":
+        if not self.pr_url and not (self.repo and self.pr_number):
+            raise ValueError("Must provide either pr_url or both repo and pr_number.")
+        return self
 
 
 class EvaluateDiffInput(BaseEvaluateInput):
@@ -173,6 +185,10 @@ class ReviewContextResponse(BaseModel):
     diff_text: str | None = Field(
         default=None,
         description="Normalized unified diff text of the evaluated changes",
+    )
+    existing_pr_comments: list[ExistingPrComment] = Field(
+        default_factory=list,
+        description="Existing live PR review comments, issue discussions, and pending drafts",
     )
     critical_summary_prompt: str = Field(
         description="Instructions for the client LLM on synthesizing these findings into the critical summary"

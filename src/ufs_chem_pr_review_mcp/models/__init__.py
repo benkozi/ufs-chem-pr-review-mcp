@@ -9,8 +9,13 @@ from ufs_chem_pr_review_mcp.models.common import (
     SupportedLanguage,
 )
 from ufs_chem_pr_review_mcp.models.github import (
+    CommentValidity,
+    ExistingCommentEvaluation,
+    ExistingPrComment,
     GitHubInlineComment,
     GitHubReviewPayload,
+    PrUrlComponents,
+    parse_github_pr_url,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     BaseEvaluateInput,
@@ -31,16 +36,20 @@ from ufs_chem_pr_review_mcp.models.review import (
 __all__ = [
     "BaseEvaluateInput",
     "CodePatch",
+    "CommentValidity",
     "DiffFollowUpStatus",
     "DomainFinding",
     "EvaluateDiffInput",
     "EvaluatePrInput",
+    "ExistingCommentEvaluation",
+    "ExistingPrComment",
     "GeneratePatchInput",
     "GitHubInlineComment",
     "GitHubReviewPayload",
     "OutputFormat",
     "PatchResult",
     "PonytailFinding",
+    "PrUrlComponents",
     "PullRequestRecord",
     "ReviewCategory",
     "ReviewCommentRecord",
@@ -49,4 +58,5 @@ __all__ = [
     "ReviewMode",
     "SearchReviewHistoryInput",
     "SupportedLanguage",
+    "parse_github_pr_url",
 ]

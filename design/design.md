@@ -93,7 +93,7 @@ flowchart TD
 | Tool Name | Parameters | Description |
 |-----------|------------|-------------|
 | `evaluate_diff` | `diff_text`, `target_repo`, `output_format`, `review_mode`, `include_ponytail_audit`, `max_context_comments` | Evaluates raw unified diff against rules and historical context. |
-| `evaluate_pr` | `repo`, `pr_number`, `output_format`, `review_mode`, `include_ponytail_audit`, `max_context_comments` | Fetches PR diff from GitHub, runs domain and Ponytail checks, retrieves relevant reviews. |
+| `evaluate_pr` | `repo`, `pr_number`, `pr_url`, `output_format`, `review_mode`, `include_ponytail_audit`, `max_context_comments` | Fetches PR diff, live inline comments, issue discussions, and pending review drafts from GitHub. Runs domain and Ponytail checks, retrieves relevant reviews. |
 | `search_review_history` | `query`, `repo`, `language`, `category`, `min_criticality`, `has_diff_followup_only`, `limit` | Full-text FTS5 search across historical PR reviews with metadata filters. |
 | `get_repo_review_stats` | `repo` | Summarizes PR counts, comment volumes, language breakdowns, and category frequencies. |
 | `format_review_output` | `findings`, `critical_summary`, `output_format` | Formats finding lists into markdown, patch, or GitHub Review API JSON. |
@@ -105,3 +105,27 @@ flowchart TD
 
 ### Prompts
 - `review_pr`: Structured prompting template guiding the user's client LLM to conduct a rigorous review using `evaluate_pr`.
+
+---
+
+## 5. Antigravity Workspace Skills
+
+The repository exposes two automated Antigravity workspace skills in `.agents/skills/`:
+
+### 5.1 `refresh-review-db`
+- **Location**: `.agents/skills/refresh-review-db/SKILL.md`
+- **Functionality**: Automates historical review database updates (`data/ufs_chem_reviews.sqlite3`) across configured UFS-Chem repositories.
+- **Workflow**: Preflight authentication check (`gh auth token` / environment variables), sync execution (`uv run ufs-chem-pr-review-sync`), and database health verification.
+
+### 5.2 `review-pr`
+- **Location**: `.agents/skills/review-pr/SKILL.md`
+- **Functionality**: Autonomous, deep-dive pull request reviews accepting a GitHub PR URL and target output file path.
+- **7-Phase Runbook**:
+  1. *Phase 0 (Auto-Freshness Guard)*: Checks local database staleness (>24 hours) for target repository; auto-syncs incrementally if needed.
+  2. *Phase 1 (Input Validation)*: Validates PR URL and creates target output directories.
+  3. *Phase 2 (Ingestion)*: Pulls live diff, existing inline comments, conversation threads, and pending review drafts (`state == "PENDING"`) via `evaluate_pr`.
+  4. *Phase 3 (Validity & Reconciliation)*: Evaluates existing comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`) against code logic and domain physics; amplifies user draft comments; eliminates duplicate noise.
+  5. *Phase 4 (Multi-Lens Audit)*: Audits against Ponytail over-engineering metrics, NOAA OMD standards (Flux Fortran, Forge C++, Aero Python), and chemistry physics rules.
+  6. *Phase 5 & 6 (Prioritization & Patches)*: Ranks issues from P0 to P3 with clickable repository file links, GitHub 1-click ````suggestion ```` blocks, and unified diff patches.
+  7. *Phase 7 (Generation)*: Writes formatted review artifact directly to target path and reports executive verdict.
+

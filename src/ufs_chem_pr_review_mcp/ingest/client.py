@@ -136,6 +136,56 @@ class GitHubClient:
         self._check_response(resp)
         return dict(resp.json())
 
+    def get_issue_comments(self, repo: str, pr_number: int) -> list[dict[str, Any]]:
+        """Fetch general discussion/conversation comments for an issue/PR."""
+        url = f"{self.base_url}/repos/{repo}/issues/{pr_number}/comments"
+        resp = self._client.get(url, params={"per_page": 100})
+        self._check_response(resp)
+        return list(resp.json())
+
+    def get_pr_reviews(self, repo: str, pr_number: int) -> list[dict[str, Any]]:
+        """Fetch list of reviews for a pull request."""
+        url = f"{self.base_url}/repos/{repo}/pulls/{pr_number}/reviews"
+        resp = self._client.get(url, params={"per_page": 100})
+        self._check_response(resp)
+        return list(resp.json())
+
+    def get_review_comments(
+        self, repo: str, pr_number: int, review_id: int
+    ) -> list[dict[str, Any]]:
+        """Fetch inline comments associated with a specific review."""
+        url = f"{self.base_url}/repos/{repo}/pulls/{pr_number}/reviews/{review_id}/comments"
+        resp = self._client.get(url, params={"per_page": 100})
+        self._check_response(resp)
+        return list(resp.json())
+
+    def get_pending_review_comments(
+        self, repo: str, pr_number: int
+    ) -> list[dict[str, Any]]:
+        """Fetch comments from pending (unsubmitted draft) reviews authored by current token."""
+        pending_comments: list[dict[str, Any]] = []
+        try:
+            reviews = self.get_pr_reviews(repo, pr_number)
+        except GitHubApiError as e:
+            logger.warning(f"Failed to fetch PR reviews for {repo}#{pr_number}: {e}")
+            return []
+
+        for r in reviews:
+            if r.get("state") == "PENDING":
+                review_id = r.get("id")
+                if review_id:
+                    try:
+                        comments = self.get_review_comments(repo, pr_number, review_id)
+                        for c in comments:
+                            c["is_pending"] = True
+                            c["review_id"] = review_id
+                            pending_comments.append(c)
+                    except GitHubApiError as e:
+                        logger.warning(
+                            f"Failed to fetch pending review comments for review {review_id}: {e}"
+                        )
+        return pending_comments
+
     def close(self) -> None:
         """Close the underlying HTTP client session."""
         self._client.close()
