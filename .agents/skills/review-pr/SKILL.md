@@ -54,7 +54,7 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
    Path(target_file).parent.mkdir(parents=True, exist_ok=True)
    ```
 
-### Phase 2: Ingestion & Live/Pending Comment Pulling
+### Phase 2: Ingestion, Live/Pending Comment Pulling & CI Checks Verification
 Call the MCP tool `evaluate_pr` on the `ufs-chem-pr-review` MCP server (via `call_mcp_tool` or directly):
 - Arguments: `pr_url="<pr_url>"`, `output_format="json"`, `review_mode="summary_and_inline"`.
 - Under the hood, the MCP server automatically:
@@ -64,6 +64,17 @@ Call the MCP tool `evaluate_pr` on the `ufs-chem-pr-review` MCP server (via `cal
   4. Ingests unsubmitted pending review draft comments (`/pulls/{pr}/reviews` -> `state == "PENDING"`).
   5. Queries `data/ufs_chem_reviews.sqlite3` using FTS5 for ranked historical review precedents.
   6. Executes automated Ponytail and UFS-Chem domain rules, returning the structured `ReviewContextResponse` payload.
+
+**CI & Test Gating Verification**:
+7. Query GitHub Actions CI status for the PR:
+   ```bash
+   gh pr checks <pr_number> --repo <owner>/<repo>
+   ```
+8. Audit CI workflow definitions (`.github/workflows/*.yml`) and build configuration:
+   - Identify which test targets actually run in CI (`ctest`, custom shell scripts, lint hooks).
+   - Uncover **Conditional Test Gating**: Search CMakeLists.txt and test harnesses for `if(EXISTS ...)` or environment gates that silently skip tests when fixture files (e.g., large NetCDF data) are absent from the CI environment.
+   - Uncover **Orphaned / Standalone Tests**: Check whether modified shell test scripts (e.g. `tests/*.sh`) are actually registered as CTest tests or invoked by CI jobs.
+   - Uncover **Manual-Only Hook Stages**: Check `.pre-commit-config.yaml` for `stages: [manual]` or hooks bypassed by default CI `pre-commit run`.
 
 ### Phase 3: Live Discussion Reconciliation & Comment Validity Evaluation
 Critically evaluate all comments returned in `existing_pr_comments`:
@@ -85,6 +96,8 @@ Critically evaluate all comments returned in `existing_pr_comments`:
    - Treat user drafts as high-priority intent. Validate them, incorporate them directly into the review synthesis, and expand them with 1-click suggestion blocks and diff patches.
 4. **Deduplication Guard**:
    - Suppress duplicate findings for issues already raised by peer reviewers, unless adding critical new evidence or validating the fix.
+5. **CI False-Confidence / False-Green Reconcilation**:
+   - Reconcile "all checks passed" status against the code diff: determine whether passing CI represents genuine test validation or false reassurance due to skipped/gated tests, unexercised branches, or missing test registration.
 
 ### Phase 4: Multi-Lens Deep Dive & Ponytail Scrutiny
 1. **Ponytail Audit**:
@@ -108,10 +121,10 @@ Critically evaluate all comments returned in `existing_pr_comments`:
 
 ### Phase 5: Severity Prioritization
 Categorize every finding into standard severity tiers:
-- **P0 — Blocker / Crash / Invalid Physics**: Numerical instability, incorrect molecular weight ratio, memory corruption, uninitialized variable in compute loop, ESMF deadlock.
-- **P1 — Major / Architectural Bug**: Missing allocation status checks, resource leaks, OpenMP race conditions, breaking interface changes, violation of EE2 operational standards.
-- **P2 — Moderate / Over-Engineering**: Ponytail violations (dead code, reinvented standard library routines, excessive abstractions), non-standard Fortran kinds, non-vectorized scalar loops.
-- **P3 — Minor / Nit**: Formatting, documentation typos, comment clarifications.
+- **P0 — Blocker / Crash / Invalid Physics**: Numerical instability, incorrect molecular weight ratio, memory corruption, uninitialized variable in compute loop, ESMF deadlock, broken build/test harness.
+- **P1 — Major / Architectural Bug**: Missing allocation status checks, resource leaks, OpenMP race conditions, breaking interface changes, violation of EE2 operational standards, missing test downloads or uncalled test fixtures.
+- **P2 — Moderate / Over-Engineering**: Ponytail violations (dead code, reinvented standard library routines, excessive abstractions), anonymous namespaces in headers, non-standard Fortran kinds, non-vectorized scalar loops.
+- **P3 — Minor / Nit**: Formatting, documentation typos, comment clarifications, misleading script error messages.
 
 ### Phase 6: Machine-Applicable Patches & Suggestions
 For every finding:
@@ -123,6 +136,7 @@ For every finding:
 1. Write the complete, formatted report directly to the target file path using `write_to_file`.
 2. Present a concise confirmation response to the user:
    - Executive verdict (APPROVE / REQUEST CHANGES / COMMENT).
+   - CI check status & false-confidence analysis (why checks passed despite issues).
    - Validity breakdown of existing peer comments (valid, invalid, resolved).
    - Status of pending review drafts (incorporated items).
    - Prioritized finding counts ($N_{P0}, N_{P1}, N_{P2}, N_{P3}$).
@@ -152,12 +166,21 @@ The generated markdown document MUST adhere to this structure:
 | `@peer_reviewer` | `chem_driver.F90:142` | Suggests SIMD on column loop | `[INVALID / FALSE POSITIVE]` | Loop carries vertical dependency; vectorization breaks solver stability. Author should dismiss. |
 | `@user` (Pending Draft) | `cmaq_aero.F90:88` | Unchecked zero-division on radius | `[VALID - INCORPORATED & EXPANDED]` | Confirmed divide-by-zero risk; expanded with 1-click safe epsilon clamp suggestion below. |
 
-## 3. Prioritized Action Items
+## 3. GitHub Actions CI Checks & Test Coverage/Gating Analysis
+
+| Workflow / Check Name | Result | Elapsed Time | Analysis & Gating Status |
+| :--- | :--- | :--- | :--- |
+| `Full CI (CECE)` | `[PASSED]` | 11m 44s | Passed, but CEDS-dependent tests (`test_nuopc_field_coupling`) skipped due to missing fixture. |
+| `Lint and Format` | `[PASSED]` | 14s | Passed; `symilar` hooks were in `stages: [manual]` and did not run. |
+
+- **False Confidence / Gating Explanation**: <Detailed analysis explaining why passing CI did not exercise latent defects>
+
+## 4. Prioritized Action Items
 - [ ] **[P0]** <Summary of blocker> — [chem/rates.F90:42](file:///path/to/repo/chem/rates.F90#L42)
 - [ ] **[P1]** <Summary of major bug> — [chem/driver.F90:110](file:///path/to/repo/chem/driver.F90#L110)
 - [ ] **[P2]** <Ponytail over-engineering reduction> — [chem/utils.F90:15](file:///path/to/repo/chem/utils.F90#L15)
 
-## 4. Detailed Findings & Machine-Applicable Suggestions
+## 5. Detailed Findings & Machine-Applicable Suggestions
 
 ### [P0] Numerical Instability / Physics Error
 - **Location**: [chem/rates.F90:42](file:///path/to/repo/chem/rates.F90#L42)
@@ -173,7 +196,7 @@ The generated markdown document MUST adhere to this structure:
 - **Tag**: `[delete]` | Lines removable: ~12 lines
 - **Recommendation**: <Eliminate unused wrapper in favor of native standard library call>
 
-## 5. Machine-Applicable Unified Diff Patch
+## 6. Machine-Applicable Unified Diff Patch
 ```diff
 --- a/chem/rates.F90
 +++ b/chem/rates.F90
