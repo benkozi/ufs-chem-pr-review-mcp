@@ -98,6 +98,7 @@ flowchart TD
 | `get_repo_review_stats` | `repo` | Summarizes PR counts, comment volumes, language breakdowns, and category frequencies. |
 | `format_review_output` | `findings`, `critical_summary`, `output_format` | Formats finding lists into markdown, patch, or GitHub Review API JSON. |
 | `generate_patch` | `patches` | Combines structured `CodePatch` items into a single unified diff patch for `git apply`. |
+| `record_review_comments` | `repo`, `pr_number`, `pr_url`, `comments`, `review_file_path`, `markdown_text`, `source_tag` | Immediately records deep-dive review findings into the local review database (`data/ufs_chem_reviews.sqlite3`) with deterministic synthetic node IDs. |
 
 ### Resources
 - `ufs-chem://repositories`: JSON catalog of tracked atmospheric chemistry repositories.
@@ -120,7 +121,7 @@ The repository exposes two automated Antigravity workspace skills in `.agents/sk
 ### 5.2 `review-pr`
 - **Location**: `.agents/skills/review-pr/SKILL.md`
 - **Functionality**: Autonomous, deep-dive pull request reviews accepting a GitHub PR URL and target output file path.
-- **7-Phase Runbook**:
+- **8-Phase Runbook**:
   1. *Phase 0 (Auto-Freshness Guard)*: Checks local database staleness (>24 hours) for target repository; auto-syncs incrementally if needed.
   2. *Phase 1 (Input Validation)*: Validates PR URL and creates target output directories.
   3. *Phase 2 (Ingestion)*: Pulls live diff, existing inline comments, conversation threads, and pending review drafts (`state == "PENDING"`) via `evaluate_pr`.
@@ -128,4 +129,6 @@ The repository exposes two automated Antigravity workspace skills in `.agents/sk
   5. *Phase 4 (Multi-Lens Audit)*: Audits against Ponytail over-engineering metrics, NOAA OMD standards (Flux Fortran, Forge C++, Aero Python), and chemistry physics rules.
   6. *Phase 5 & 6 (Prioritization & Patches)*: Ranks issues from P0 to P3 with clickable repository file links, GitHub 1-click ````suggestion ```` blocks, and unified diff patches.
   7. *Phase 7 (Generation)*: Writes formatted review artifact directly to target path and reports executive verdict.
+  8. *Phase 8 (Immediate Ingestion)*: Persists all prioritized review findings directly into `data/ufs_chem_reviews.sqlite3` via `record_review_comments`, making them instantly searchable and available as future precedents.
+
 

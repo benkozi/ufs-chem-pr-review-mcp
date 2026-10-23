@@ -93,6 +93,12 @@ def sync_repository(
         if not comments:
             continue
 
+        db.reconcile_local_comments_for_pr(
+            repo_name=repo_name,
+            pr_number=pr_number,
+            incoming_gh_comments=comments,
+        )
+
         # Fetch commits to evaluate follow-up code changes
         commits_meta = client.get_pr_commits(repo_name, pr_number)
         parsed_commits: list[dict[str, Any]] = []

@@ -185,6 +185,7 @@ uv run ufs-chem-pr-review-sync \
 - `get_repo_review_stats`: Returns review metrics, comment volumes, and top category patterns for a repository.
 - `format_review_output`: Formats findings into `markdown`, `patch` (`git apply`), or `github_json` format.
 - `generate_patch`: Combines multiple `CodePatch` hunks into a single unified diff patch.
+- `record_review_comments`: Ingests deep-dive code review findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) from parsed review markdown report files or structured objects, ensuring instant retrieval in subsequent reviews with deterministic synthetic IDs and seamless upstream reconciliation.
 
 ### Resources
 - `ufs-chem://repositories`: JSON catalog of tracked repositories and branch configurations.
@@ -211,6 +212,7 @@ The repository includes ready-to-use workspace skills in `.agents/skills/`:
   - Critically evaluates prior comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`).
   - Synthesizes Ponytail over-engineering metrics, NOAA OMD guidelines, and domain physics.
   - Generates clickable repo line links, 1-click GitHub ````suggestion ```` blocks, and unified diff patches.
+  - Immediately ingests generated findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) via `record_review_comments` for instant precedent retrieval.
   *Usage*: Prompt *"Review https://github.com/ufs-community/CATChem/pull/123 into reviews/pr-123.md"*.
 
 

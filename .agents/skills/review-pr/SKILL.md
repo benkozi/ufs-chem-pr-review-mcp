@@ -4,10 +4,10 @@ description: >-
   Conduct an in-depth, rigorous code review of a GitHub Pull Request given its URL,
   always pulling down existing and pending review comments and threads on the PR,
   critically evaluating the validity of existing comments against domain physics and rules,
-  refreshing the review knowledge base, and synthesizing Ponytail over-engineering analysis,
+  refreshing the review knowledge base, synthesizing Ponytail over-engineering analysis,
   NOAA OMD standards, and atmospheric chemistry physics rules, writing the complete prioritized
-  review report to a specified file path. Use this skill whenever the user provides a
-  PR URL and asks for a review written to a file.
+  review report to a specified file path, and immediately ingesting all findings into the review
+  database. Use this skill whenever the user provides a PR URL and asks for a review written to a file.
 ---
 
 # `review-pr` Runbook
@@ -20,7 +20,8 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
 
 ---
 
-## 7-Phase Autonomous Review Pipeline
+## 8-Phase Autonomous Review Pipeline
+
 
 ### Phase 0: Freshness Verification & On-Demand Incremental Sync
 1. Parse the PR URL into `owner/repo` and `pr_number`.
@@ -51,6 +52,7 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
 2. Ensure parent directories exist:
    ```python
    from pathlib import Path
+
    Path(target_file).parent.mkdir(parents=True, exist_ok=True)
    ```
 
@@ -141,9 +143,32 @@ For every finding:
    - Status of pending review drafts (incorporated items).
    - Prioritized finding counts ($N_{P0}, N_{P1}, N_{P2}, N_{P3}$).
    - Ponytail metric summary (Net lines removable).
+   - Database Ingestion status (number of findings recorded to historical database).
    - Clickable file link to the generated review artifact.
 
+### Phase 8: Immediate Database Ingestion (Default Hook)
+Immediately after generating the review report, the agent automatically persists all actionable review findings into the local historical review database (`data/ufs_chem_reviews.sqlite3`):
+
+1. **Invoke `record_review_comments`**:
+   Call the `record_review_comments` tool on the `ufs-chem-pr-review` MCP server (via `call_mcp_tool` or directly):
+   - Arguments:
+     ```json
+     {
+       "pr_url": "<pr_url>",
+       "review_file_path": "<target_output_file_path>"
+     }
+     ```
+2. **Under the Hood Execution**:
+   - The MCP tool parses all P0, P1, P2, and P3 findings and suggestions directly from the report file.
+   - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`).
+   - Inserts or updates the findings into `data/ufs_chem_reviews.sqlite3`.
+   - SQLite FTS5 trigger `comments_ai` immediately indexes the findings into `comments_fts`.
+3. **Precedent Availability**:
+   - These findings are now immediately discoverable via `search_review_history` and will be ranked as historical precedents in subsequent reviews of other PRs.
+   - If the user or developer subsequently posts these comments to GitHub and runs `ufs-chem-pr-review-sync`, the sync engine automatically reconciles matching coordinates and text, replacing the local draft with the official GitHub comment with zero duplicates.
+
 ---
+
 
 ## Output Report Schema
 

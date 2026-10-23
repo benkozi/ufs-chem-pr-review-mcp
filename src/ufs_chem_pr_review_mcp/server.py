@@ -32,6 +32,11 @@ from ufs_chem_pr_review_mcp.models.github import (
     GitHubReviewPayload,
     parse_github_pr_url,
 )
+from ufs_chem_pr_review_mcp.models.local_review import (
+    LocalReviewCommentInput,
+    RecordReviewCommentsResponse,
+    parse_review_markdown_findings,
+)
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     DomainFinding,
     PonytailFinding,
@@ -47,6 +52,7 @@ from ufs_chem_pr_review_mcp.rules.ufs_chem import evaluate_ufs_chem_rules
 logger = get_logger("server")
 
 READ_ONLY_ANNOTATIONS = ToolAnnotations(readOnlyHint=True)
+MUTATING_ANNOTATIONS = ToolAnnotations(readOnlyHint=False)
 
 
 def _split_diff_by_file(diff_text: str) -> dict[str, str]:
@@ -568,6 +574,82 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         patch_objs = [CodePatch.model_validate(p) for p in patches]
         res = build_unified_diff_patch(patch_objs)
         return res.model_dump_json(indent=2)
+
+    # 7. record_review_comments
+    @mcp.tool(
+        annotations=MUTATING_ANNOTATIONS,
+        description="Immediately records code review comments and findings into the local review database (data/ufs_chem_reviews.sqlite3). Accepts structured findings or a markdown review report file path.",
+    )
+    def record_review_comments(
+        repo: str | None = None,
+        pr_number: int | None = None,
+        pr_url: str | None = None,
+        comments: list[dict[str, Any]] | None = None,
+        review_file_path: str | None = None,
+        markdown_text: str | None = None,
+        source_tag: str = "agent-deep-dive",
+    ) -> str:
+        if pr_url:
+            try:
+                comp = parse_github_pr_url(pr_url)
+                target_repo = comp.full_repo
+                target_pr = comp.pr_number
+            except ValueError as e:
+                return json.dumps(
+                    {"error": str(e), "message": "Invalid pr_url provided."}
+                )
+        elif repo and pr_number:
+            target_repo = repo
+            target_pr = pr_number
+        else:
+            return json.dumps(
+                {
+                    "error": "Missing target",
+                    "message": "Must provide pr_url or both repo and pr_number.",
+                }
+            )
+
+        parsed_comments: list[LocalReviewCommentInput] = []
+
+        if comments:
+            for c in comments:
+                parsed_comments.append(LocalReviewCommentInput.model_validate(c))
+
+        if review_file_path:
+            fpath = Path(review_file_path)
+            if fpath.exists():
+                text = fpath.read_text(encoding="utf-8")
+                parsed_comments.extend(parse_review_markdown_findings(text))
+            else:
+                logger.warning(f"review_file_path does not exist: {review_file_path}")
+
+        if markdown_text:
+            parsed_comments.extend(parse_review_markdown_findings(markdown_text))
+
+        if not parsed_comments:
+            return json.dumps(
+                {
+                    "error": "No findings found",
+                    "message": "No comments provided and no findings could be parsed from markdown.",
+                }
+            )
+
+        inserted, updated, summaries = db.record_local_review_comments(
+            repo_name=target_repo,
+            pr_number=target_pr,
+            comments=parsed_comments,
+        )
+
+        response = RecordReviewCommentsResponse(
+            repo=target_repo,
+            pr_number=target_pr,
+            total_received=len(parsed_comments),
+            inserted_count=inserted,
+            updated_count=updated,
+            db_path=str(db.db_path),
+            recorded_comments=summaries,
+        )
+        return response.model_dump_json(indent=2)
 
     # Resources
     @mcp.resource("ufs-chem://repositories")

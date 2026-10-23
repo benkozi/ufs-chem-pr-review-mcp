@@ -13,6 +13,12 @@ from ufs_chem_pr_review_mcp.models.common import (
     ReviewCategory,
     SupportedLanguage,
 )
+from ufs_chem_pr_review_mcp.models.local_review import (
+    LocalReviewCommentInput,
+    ReconciliationStats,
+    RecordedCommentSummary,
+    generate_synthetic_node_id,
+)
 from ufs_chem_pr_review_mcp.models.review import (
     PullRequestRecord,
     ReviewCommentRecord,
@@ -606,3 +612,237 @@ class ReviewDatabase:
             updated_at=datetime.fromisoformat(row["updated_at"]),
             indexed_at=datetime.fromisoformat(row["indexed_at"]),
         )
+
+    def record_local_review_comments(
+        self,
+        repo_name: str,
+        pr_number: int,
+        comments: list[LocalReviewCommentInput],
+        repo_url: str | None = None,
+        pr_title: str | None = None,
+        author_login: str = "unknown",
+    ) -> tuple[int, int, list[RecordedCommentSummary]]:
+        """Record locally synthesized review comments into SQLite."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM repositories WHERE name = ?;", (repo_name,))
+            repo_row = cursor.fetchone()
+            now = datetime.now(timezone.utc).isoformat()
+            if not repo_row:
+                url = repo_url or f"https://github.com/{repo_name}"
+                cursor.execute(
+                    """
+                    INSERT INTO repositories (name, url, default_branch, created_at, updated_at)
+                    VALUES (?, ?, 'main', ?, ?)
+                    RETURNING id;
+                    """,
+                    (repo_name, url, now, now),
+                )
+                repo_id = int(cursor.fetchone()["id"])
+            else:
+                repo_id = int(repo_row["id"])
+
+            cursor.execute(
+                "SELECT id FROM pull_requests WHERE repo_id = ? AND pr_number = ?;",
+                (repo_id, pr_number),
+            )
+            pr_row = cursor.fetchone()
+            if not pr_row:
+                title = pr_title or f"PR #{pr_number}"
+                cursor.execute(
+                    """
+                    INSERT INTO pull_requests (
+                        repo_id, pr_number, title, author_login, state,
+                        base_sha, head_sha, created_at, updated_at, indexed_at
+                    )
+                    VALUES (?, ?, ?, ?, 'open', 'unknown', 'unknown', ?, ?, ?)
+                    RETURNING id;
+                    """,
+                    (repo_id, pr_number, title, author_login, now, now, now),
+                )
+                pr_id = int(cursor.fetchone()["id"])
+            else:
+                pr_id = int(pr_row["id"])
+
+            inserted_count = 0
+            updated_count = 0
+            summaries: list[RecordedCommentSummary] = []
+            from ufs_chem_pr_review_mcp.ingest.classifier import detect_language
+
+            for c in comments:
+                lang = (
+                    c.language
+                    if c.language != SupportedLanguage.UNKNOWN
+                    else detect_language(c.path)
+                )
+
+                crit = c.resolved_criticality()
+                node_id = generate_synthetic_node_id(
+                    repo_name=repo_name,
+                    pr_number=pr_number,
+                    path=c.path,
+                    line=c.line,
+                    category=c.category.value,
+                    body=c.body,
+                )
+
+                cursor.execute(
+                    "SELECT id FROM review_comments WHERE comment_node_id = ?;",
+                    (node_id,),
+                )
+                existing = cursor.fetchone()
+
+                rendered_body = c.body
+                if c.suggested_change:
+                    suggestion_block = (
+                        f"\n\n```suggestion\n{c.suggested_change.rstrip()}\n```"
+                    )
+                    if suggestion_block not in rendered_body:
+                        rendered_body = f"{rendered_body.rstrip()}{suggestion_block}"
+
+                cursor.execute(
+                    """
+                    INSERT INTO review_comments (
+                        pr_id, comment_node_id, author_login, author_association,
+                        body, path, line, original_line, start_line, side, diff_hunk,
+                        language, category, criticality, has_diff_followup,
+                        diff_followup_status, created_at, updated_at, indexed_at
+                    )
+                    VALUES (?, ?, ?, 'REVIEWER', ?, ?, ?, ?, ?, 'RIGHT', ?, ?, ?, ?, 0, 'no_response', ?, ?, ?)
+                    ON CONFLICT(comment_node_id) DO UPDATE SET
+                        body = excluded.body,
+                        line = excluded.line,
+                        start_line = excluded.start_line,
+                        criticality = excluded.criticality,
+                        updated_at = excluded.updated_at,
+                        indexed_at = excluded.indexed_at;
+                    """,
+                    (
+                        pr_id,
+                        node_id,
+                        c.author_login,
+                        rendered_body,
+                        c.path,
+                        c.line,
+                        c.line,
+                        c.start_line,
+                        c.diff_hunk,
+                        lang.value,
+                        c.category.value,
+                        crit,
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+
+                status = "updated" if existing else "inserted"
+                if existing:
+                    updated_count += 1
+                else:
+                    inserted_count += 1
+
+                summaries.append(
+                    RecordedCommentSummary(
+                        comment_node_id=node_id,
+                        path=c.path,
+                        line=c.line,
+                        category=c.category,
+                        severity=c.severity,
+                        priority_label=c.severity.label,
+                        criticality=crit,
+                        status=status,
+                    )
+                )
+
+            conn.commit()
+            return inserted_count, updated_count, summaries
+        finally:
+            conn.close()
+
+    def reconcile_local_comments_for_pr(
+        self,
+        repo_name: str,
+        pr_number: int,
+        incoming_gh_comments: list[dict[str, Any]],
+    ) -> ReconciliationStats:
+        """Reconcile local synthetic review comments when real comments are fetched from GitHub."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT rc.id, rc.comment_node_id, rc.path, rc.line, rc.body
+                FROM review_comments rc
+                JOIN pull_requests pr ON rc.pr_id = pr.id
+                JOIN repositories r ON pr.repo_id = r.id
+                WHERE r.name = ? AND pr.pr_number = ? AND rc.comment_node_id LIKE 'local-review:%';
+                """,
+                (repo_name, pr_number),
+            )
+            local_rows = cursor.fetchall()
+            if not local_rows:
+                return ReconciliationStats(
+                    repo=repo_name,
+                    pr_number=pr_number,
+                    local_comments_found=0,
+                    reconciled_count=0,
+                    retained_local_count=0,
+                )
+
+            reconciled_ids: set[int] = set()
+
+            for gh_c in incoming_gh_comments:
+                gh_path = gh_c.get("path")
+                gh_line = gh_c.get("line") or gh_c.get("original_line")
+                gh_body = (gh_c.get("body") or "").strip()
+
+                for lr in local_rows:
+                    lr_id = int(lr["id"])
+                    if lr_id in reconciled_ids:
+                        continue
+
+                    lr_path = lr["path"]
+                    lr_line = lr["line"]
+                    lr_body = (lr["body"] or "").strip()
+
+                    # Coordinate match check
+                    if lr_path == gh_path and (lr_line == gh_line or lr_line is None):
+                        # Check text overlap / semantic match
+                        if _is_comment_text_match(lr_body, gh_body):
+                            reconciled_ids.add(lr_id)
+
+            # Delete reconciled local comments (triggers comments_ad to clean up FTS5)
+            for rid in reconciled_ids:
+                cursor.execute("DELETE FROM review_comments WHERE id = ?;", (rid,))
+
+            conn.commit()
+            return ReconciliationStats(
+                repo=repo_name,
+                pr_number=pr_number,
+                local_comments_found=len(local_rows),
+                reconciled_count=len(reconciled_ids),
+                retained_local_count=len(local_rows) - len(reconciled_ids),
+            )
+        finally:
+            conn.close()
+
+
+def _is_comment_text_match(local_body: str, gh_body: str) -> bool:
+    """Deterministic heuristic to verify if a GitHub comment matches a local review comment."""
+    if not local_body or not gh_body:
+        return False
+    # Exact match
+    if local_body == gh_body:
+        return True
+    # If one contains the other (e.g. suggestion block wrapped or preamble added)
+    if local_body in gh_body or gh_body in local_body:
+        return True
+    # Token jaccard similarity check on non-trivial words (>3 chars)
+    t_local = set(re.findall(r"[a-zA-Z0-9_]{3,}", local_body.lower()))
+    t_gh = set(re.findall(r"[a-zA-Z0-9_]{3,}", gh_body.lower()))
+    if not t_local or not t_gh:
+        return False
+    overlap = len(t_local & t_gh) / min(len(t_local), len(t_gh))
+    return overlap >= 0.65

@@ -294,7 +294,11 @@ class LocalReviewCommentInput(BaseModel):
 
     def resolved_criticality(self) -> int:
         """Return explicit criticality or fall back to severity mapping."""
-        return self.criticality if self.criticality is not None else self.severity.default_criticality
+        return (
+            self.criticality
+            if self.criticality is not None
+            else self.severity.default_criticality
+        )
 
 
 class RecordReviewCommentsInput(BaseModel):
@@ -369,9 +373,15 @@ class RecordReviewCommentsResponse(BaseModel):
 
     repo: str = Field(description="Target repository evaluated")
     pr_number: int = Field(description="Target PR number")
-    total_received: int = Field(description="Total candidate findings parsed or received")
-    inserted_count: int = Field(description="Number of new comments inserted into database")
-    updated_count: int = Field(description="Number of existing comments updated in place")
+    total_received: int = Field(
+        description="Total candidate findings parsed or received"
+    )
+    inserted_count: int = Field(
+        description="Number of new comments inserted into database"
+    )
+    updated_count: int = Field(
+        description="Number of existing comments updated in place"
+    )
     db_path: str = Field(description="Absolute path to the SQLite review database")
     recorded_comments: list[RecordedCommentSummary] = Field(
         default_factory=list,
@@ -495,7 +505,11 @@ def record_local_review_comments(
         summaries: list[RecordedCommentSummary] = []
 
         for c in comments:
-            lang = c.language if c.language != SupportedLanguage.UNKNOWN else detect_language(c.path)
+            lang = (
+                c.language
+                if c.language != SupportedLanguage.UNKNOWN
+                else detect_language(c.path)
+            )
             crit = c.resolved_criticality()
             node_id = generate_synthetic_node_id(
                 repo_name=repo_name,
@@ -514,7 +528,9 @@ def record_local_review_comments(
 
             rendered_body = c.body
             if c.suggested_change:
-                suggestion_block = f"\n\n```suggestion\n{c.suggested_change.rstrip()}\n```"
+                suggestion_block = (
+                    f"\n\n```suggestion\n{c.suggested_change.rstrip()}\n```"
+                )
                 if suggestion_block not in rendered_body:
                     rendered_body = f"{rendered_body.rstrip()}{suggestion_block}"
 
@@ -689,7 +705,7 @@ def parse_review_markdown_findings(markdown_text: str) -> list[LocalReviewCommen
     - Categorizes severity, maps file path, extracts line numbers, and builds structured comments.
     """
     comments: list[LocalReviewCommentInput] = []
-    
+
     # Regex matching Section 5 finding blocks:
     # ### [P0|P1|P2|P3] <Title>
     # - **Location**: [path#L123](...) or `path:123`
@@ -706,7 +722,11 @@ def parse_review_markdown_findings(markdown_text: str) -> list[LocalReviewCommen
     for m in pattern.finditer(markdown_text):
         sev_str, title, raw_path, raw_line, content = m.groups()
         severity = FindingSeverity(sev_str)
-        path = raw_path.strip().replace("file://", "").split("#")[0].strip() if raw_path else "unknown"
+        path = (
+            raw_path.strip().replace("file://", "").split("#")[0].strip()
+            if raw_path
+            else "unknown"
+        )
         line = int(raw_line) if raw_line else None
 
         # Extract suggestion block if present
@@ -737,13 +757,40 @@ def parse_review_markdown_findings(markdown_text: str) -> list[LocalReviewCommen
 def _infer_finding_category(title: str, content: str) -> ReviewCategory:
     """Infer ReviewCategory from finding title and text content."""
     combined = f"{title} {content}".lower()
-    if any(k in combined for k in ["chemistry", "molar", "mixing ratio", "reaction", "photolysis", "emission"]):
+    if any(
+        k in combined
+        for k in [
+            "chemistry",
+            "molar",
+            "mixing ratio",
+            "reaction",
+            "photolysis",
+            "emission",
+        ]
+    ):
         return ReviewCategory.PHYSICS_CHEMISTRY
-    if any(k in combined for k in ["ponytail", "yagni", "dead code", "removable", "shrink", "delete"]):
+    if any(
+        k in combined
+        for k in ["ponytail", "yagni", "dead code", "removable", "shrink", "delete"]
+    ):
         return ReviewCategory.OVER_ENGINEERING
-    if any(k in combined for k in ["kind", "standard", "pure", "openmp", "raii", "formatting", "flang"]):
+    if any(
+        k in combined
+        for k in ["kind", "standard", "pure", "openmp", "raii", "formatting", "flang"]
+    ):
         return ReviewCategory.STYLE_STANDARDS
-    if any(k in combined for k in ["leak", "allocation", "stat=", "errmsg", "esmf_log", "crash", "segfault"]):
+    if any(
+        k in combined
+        for k in [
+            "leak",
+            "allocation",
+            "stat=",
+            "errmsg",
+            "esmf_log",
+            "crash",
+            "segfault",
+        ]
+    ):
         return ReviewCategory.CORRECTNESS
     return ReviewCategory.CORRECTNESS
 ```
@@ -756,6 +803,7 @@ Add the mutating tool `record_review_comments` to `server.py`:
 
 ```python
 MUTATING_ANNOTATIONS = ToolAnnotations(readOnlyHint=False)
+
 
 # 7. record_review_comments
 @mcp.tool(
@@ -784,7 +832,10 @@ def record_review_comments(
         target_pr = pr_number
     else:
         return json.dumps(
-            {"error": "Missing target", "message": "Must provide pr_url or both repo and pr_number."}
+            {
+                "error": "Missing target",
+                "message": "Must provide pr_url or both repo and pr_number.",
+            }
         )
 
     # Gather candidate findings
