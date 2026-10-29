@@ -7,20 +7,23 @@ description: >-
   refreshing the review knowledge base, synthesizing Ponytail over-engineering analysis,
   NOAA OMD standards, and atmospheric chemistry physics rules, writing the complete prioritized
   review report to a specified file path, and immediately ingesting all findings into the review
-  database. Use this skill whenever the user provides a PR URL and asks for a review written to a file.
+  database. Supports optional local checkout in scratch space (including dependent applications)
+  via `gh pr checkout` for in-depth code and cross-component analysis. Use this skill whenever the
+  user provides a PR URL and asks for a review written to a file.
 ---
 
 # `review-pr` Runbook
 
 Execute an autonomous, multi-lens code review of a GitHub Pull Request across UFS-Chem repositories.
 
-## Required Inputs
-1. **GitHub PR URL**: e.g., `https://github.com/ufs-community/CATChem/pull/123`
-2. **Target Output File Path**: e.g., `reviews/catch-123.md` or `pr-123-review.md`
+## Review Inputs
+1. **GitHub PR URL** (Required): e.g., `https://github.com/ufs-community/CATChem/pull/123`
+2. **Target Output File Path** (Required): e.g., `reviews/catch-123.md` or `pr-123-review.md`
+3. **Local Scratch Space** (Optional): e.g., `scratch/reviews/<repo>-pr-<pr_number>/` or conversation scratch directory for checking out the PR code and dependent applications locally for deeper inspection.
 
 ---
 
-## 8-Phase Autonomous Review Pipeline
+## Autonomous Multi-Lens Review Pipeline
 
 
 ### Phase 0: Freshness Verification & On-Demand Incremental Sync
@@ -78,6 +81,57 @@ Call the MCP tool `evaluate_pr` on the `ufs-chem-pr-review` MCP server (via `cal
    - Uncover **Orphaned / Standalone Tests**: Check whether modified shell test scripts (e.g. `tests/*.sh`) are actually registered as CTest tests or invoked by CI jobs.
    - Uncover **Manual-Only Hook Stages**: Check `.pre-commit-config.yaml` for `stages: [manual]` or hooks bypassed by default CI `pre-commit run`.
 
+### Phase 2b: Local Scratch Space & Dependent Application Checkout (Optional / In-Depth Analysis)
+For in-depth analysis beyond the PR diff hunks (e.g., verifying whole-file context, checking all call sites across the codebase, auditing cross-component coupling interfaces, or testing patches), the PR can be checked out locally in a scratch space.
+
+1. **Local Scratch Space Setup**:
+   - Use an isolated scratch directory within the workspace (e.g., `scratch/reviews/<repo>-pr-<pr_number>/` or within the conversation scratch space) to avoid mutating or dirtying the primary workspace git state.
+   - Create the directory:
+     ```bash
+     mkdir -p scratch/reviews/<repo>-pr-<pr_number>
+     ```
+
+2. **PR Checkout via `gh pr checkout`**:
+   - Always try to use `gh pr checkout` to check out the PR branch locally:
+     ```bash
+     cd scratch/reviews/<repo>-pr-<pr_number>
+     # Clone repository if not already present in scratch space:
+     gh repo clone <owner>/<repo> .
+     # Check out the PR branch:
+     gh pr checkout <pr_number>
+     ```
+   - **Why `gh pr checkout`**:
+     - Automatically configures branch tracking for the PR branch.
+     - Transparently handles PRs originating from external contributor forks.
+     - Ensures the local working tree exactly matches the PR's latest head commit.
+   - If working within an existing local clone of the target repository:
+     - Use `gh pr checkout <pr_number>` directly, or use `git worktree add scratch/reviews/<repo>-pr-<pr_number> -b review-pr-<pr_number>` to keep active working tree edits isolated.
+
+3. **Dependent Application Checkout**:
+   - UFS-Chem components operate within an integrated coupled modeling ecosystem (CCPP physics, NUOPC / ESMF caps, shared emissions data, and containerized workflows). PR modifications in one repository frequently impact dependent applications.
+   - Dependent applications can also be checked out into sibling scratch directories for cross-repository compatibility analysis:
+     - **Common UFS-Chem Repositories & Dependencies**:
+       - `ufs-community/CATChem`: CCPP Atmospheric Chemistry suite; couples to host models and emission components.
+       - `ufs-community/CECE`: Chemistry Emission & Chemical Evolution; couples to CATChem chemistry drivers and input data readers.
+       - `noaa-emc/HELM`: High-resolution Emission and Loss Modeling; feeds gridded emissions data into CECE/CATChem.
+       - `ufs-community/ufs-chem-container`: Container definitions and submodule integration tests.
+       - Coupled host models & workflows: `ufs-weather-model`, `ufs-srw-app`, or `AQM`.
+     - **Checking Out Dependent Repositories**:
+       ```bash
+       mkdir -p scratch/reviews/<repo>-pr-<pr_number>/<dependent_repo>
+       cd scratch/reviews/<repo>-pr-<pr_number>/<dependent_repo>
+       gh repo clone <dependent_owner>/<dependent_repo> .
+       # Checkout the relevant tracking branch (e.g., develop/main) or coupled PR branch:
+       git checkout <target_branch>
+       # (Or if there is a corresponding dependent PR: gh pr checkout <dependent_pr_number>)
+       ```
+
+4. **In-Depth Analysis Enabled by Scratch Space**:
+   - **Whole-Codebase Call-Site Search**: Use `grep` or `rg` to verify all caller sites and references to modified functions, variables, Fortran `use` statements, or C++ headers across the full codebase.
+   - **Cross-Component Interface Verification**: Audit function/subroutine signature changes against dependent applications to ensure NUOPC cap interfaces (`chem_init`, `chem_run`, `chem_finalize`), CCPP physics schemes, and data dictionary names match.
+   - **Namelist & Configuration Schema Auditing**: Cross-reference YAML/nml configuration changes with dependent model components.
+   - **Pre-commit & Build Hook Inspection**: Inspect CMake targets, run linters (`pre-commit run --all-files`), or verify compile dependencies locally.
+
 ### Phase 3: Live Discussion Reconciliation & Comment Validity Evaluation
 Critically evaluate all comments returned in `existing_pr_comments`:
 1. **Validity Evaluation**:
@@ -120,6 +174,9 @@ Critically evaluate all comments returned in `existing_pr_comments`:
    - For domain guideline deep dives, read resource `ufs-chem://guidelines/{category}` (`fortran`, `cpp`, `chemistry_physics`, `ee2`, `ponytail`).
 5. **External Web & Documentation Checks**:
    - Consult CCPP physics interfaces, ESMF API docs, or third-party libraries via `search_web` if unfamiliar constructs appear.
+6. **Scratch Space & Dependent Application Cross-Analysis**:
+   - If checked out locally in scratch space (Phase 2b), search caller sites across the whole repository (`rg "subroutine_or_symbol"`) to verify whether modified subroutine interfaces, Fortran `intent`, or parameter types broke un-diffed callers.
+   - Check dependent applications in the scratch space for breaking interface changes, NUOPC coupling contract mismatches, or namelist incompatibilities.
 
 ### Phase 5: Severity Prioritization
 Categorize every finding into standard severity tiers:
@@ -133,6 +190,7 @@ For every finding:
 - Identify exact file path and line numbers in the target repository.
 - Provide a GitHub 1-click suggestion block (````suggestion\n<replacement>\n````).
 - Include unified diff hunks ready for `git apply`.
+- If the PR was checked out locally in scratch space, validate unified diff patches with `git apply --check` or verify syntax against the checked out files before including them in the report.
 
 ### Phase 7: Output File Generation & User Presentation
 1. Write the complete, formatted report directly to the target file path using `write_to_file`.

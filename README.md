@@ -212,6 +212,7 @@ The repository includes ready-to-use workspace skills in `.agents/skills/`:
   - Critically evaluates prior comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`).
   - Synthesizes Ponytail over-engineering metrics, NOAA OMD guidelines, and domain physics.
   - Generates clickable repo line links, 1-click GitHub ````suggestion ```` blocks, and unified diff patches.
+  - Supports optional local checkout in scratch space (including dependent applications) via `gh pr checkout` for in-depth whole-codebase and cross-coupling analysis.
   - Immediately ingests generated findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) via `record_review_comments` for instant precedent retrieval.
   *Usage*: Prompt *"Review https://github.com/ufs-community/CATChem/pull/123 into reviews/pr-123.md"*.
 

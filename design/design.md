@@ -121,14 +121,15 @@ The repository exposes two automated Antigravity workspace skills in `.agents/sk
 ### 5.2 `review-pr`
 - **Location**: `.agents/skills/review-pr/SKILL.md`
 - **Functionality**: Autonomous, deep-dive pull request reviews accepting a GitHub PR URL and target output file path.
-- **8-Phase Runbook**:
+- **Runbook Pipeline**:
   1. *Phase 0 (Auto-Freshness Guard)*: Checks local database staleness (>24 hours) for target repository; auto-syncs incrementally if needed.
-  2. *Phase 1 (Input Validation)*: Validates PR URL and creates target output directories.
+  2. *Phase 1 (Input Validation)*: Validates PR URL, optional scratch space path, and creates target output directories.
   3. *Phase 2 (Ingestion)*: Pulls live diff, existing inline comments, conversation threads, and pending review drafts (`state == "PENDING"`) via `evaluate_pr`.
-  4. *Phase 3 (Validity & Reconciliation)*: Evaluates existing comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`) against code logic and domain physics; amplifies user draft comments; eliminates duplicate noise.
-  5. *Phase 4 (Multi-Lens Audit)*: Audits against Ponytail over-engineering metrics, NOAA OMD standards (Flux Fortran, Forge C++, Aero Python), and chemistry physics rules.
-  6. *Phase 5 & 6 (Prioritization & Patches)*: Ranks issues from P0 to P3 with clickable repository file links, GitHub 1-click ````suggestion ```` blocks, and unified diff patches.
-  7. *Phase 7 (Generation)*: Writes formatted review artifact directly to target path and reports executive verdict.
-  8. *Phase 8 (Immediate Ingestion)*: Persists all prioritized review findings directly into `data/ufs_chem_reviews.sqlite3` via `record_review_comments`, making them instantly searchable and available as future precedents.
+  4. *Phase 2b (Local Scratch & Dependent Apps)*: Optional checkout of the PR locally in scratch space via `gh pr checkout` alongside dependent applications (e.g., `CATChem`, `CECE`, `HELM`) for deep whole-repo callsite and coupling analysis.
+  5. *Phase 3 (Validity & Reconciliation)*: Evaluates existing comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`) against code logic and domain physics; amplifies user draft comments; eliminates duplicate noise.
+  6. *Phase 4 (Multi-Lens Audit)*: Audits against Ponytail over-engineering metrics, NOAA OMD standards (Flux Fortran, Forge C++, Aero Python), chemistry physics rules, and whole-repo/cross-component scratch space analysis.
+  7. *Phase 5 & 6 (Prioritization & Patches)*: Ranks issues from P0 to P3 with clickable repository file links, GitHub 1-click ````suggestion ```` blocks, and validated unified diff patches.
+  8. *Phase 7 (Generation)*: Writes formatted review artifact directly to target path and reports executive verdict.
+  9. *Phase 8 (Immediate Ingestion)*: Persists all prioritized review findings directly into `data/ufs_chem_reviews.sqlite3` via `record_review_comments`, making them instantly searchable and available as future precedents.
 
 
