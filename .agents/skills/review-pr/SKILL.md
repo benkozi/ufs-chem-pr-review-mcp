@@ -178,18 +178,38 @@ Critically evaluate all comments returned in `existing_pr_comments`:
    - If checked out locally in scratch space (Phase 2b), search caller sites across the whole repository (`rg "subroutine_or_symbol"`) to verify whether modified subroutine interfaces, Fortran `intent`, or parameter types broke un-diffed callers.
    - Check dependent applications in the scratch space for breaking interface changes, NUOPC coupling contract mismatches, or namelist incompatibilities.
 
-### Phase 5: Severity Prioritization
-Categorize every finding into standard severity tiers:
-- **P0 — Blocker / Crash / Invalid Physics**: Numerical instability, incorrect molecular weight ratio, memory corruption, uninitialized variable in compute loop, ESMF deadlock, broken build/test harness.
-- **P1 — Major / Architectural Bug**: Missing allocation status checks, resource leaks, OpenMP race conditions, breaking interface changes, violation of EE2 operational standards, missing test downloads or uncalled test fixtures.
-- **P2 — Moderate / Over-Engineering**: Ponytail violations (dead code, reinvented standard library routines, excessive abstractions), anonymous namespaces in headers, non-standard Fortran kinds, non-vectorized scalar loops.
-- **P3 — Minor / Nit**: Formatting, documentation typos, comment clarifications, misleading script error messages.
+### Phase 5: Severity Prioritization & Atomic Finding Decomposition
+1. Categorize every finding into standard severity tiers:
+   - **P0 — Blocker / Crash / Invalid Physics**: Numerical instability, incorrect molecular weight ratio, memory corruption, uninitialized variable in compute loop, ESMF deadlock, broken build/test harness.
+   - **P1 — Major / Architectural Bug**: Missing allocation status checks, resource leaks, OpenMP race conditions, breaking interface changes, violation of EE2 operational standards, missing test downloads or uncalled test fixtures.
+   - **P2 — Moderate / Over-Engineering**: Ponytail violations (dead code, reinvented standard library routines, excessive abstractions), anonymous namespaces in headers, non-standard Fortran kinds, non-vectorized scalar loops.
+   - **P3 — Minor / Nit**: Formatting, documentation typos, comment clarifications, misleading script error messages.
+2. **Split Out Ponytail & Multi-Theme Findings**:
+   - **One File / One Theme per `[P*]` Finding**: Never bundle multiple files or distinct themes into a single composite `[P*]` finding (especially Ponytail `[P2]` findings). Each Ponytail recommendation MUST be split into its own separate `[P*]` entry scoped to a single file and line range so a reviewer can copy-paste and post it directly to a specific GitHub PR diff location.
 
-### Phase 6: Machine-Applicable Patches & Suggestions
+### Phase 6: Machine-Applicable Patches, Post Locations & Review Comment Template
 For every finding:
-- Identify exact file path and line numbers in the target repository.
-- Provide a GitHub 1-click suggestion block (````suggestion\n<replacement>\n````).
-- Include unified diff hunks ready for `git apply`.
+- Identify exact repository-relative file path and line numbers (e.g., `` `chem/rates.F90:42` ``).
+- **No `file:///` Links in Report**: Do **NOT** include `file:///...` links in `[P*]` findings, action items, or anywhere in the generated markdown report (they add excessive visual noise when reading or copy-pasting to GitHub). Always format locations as backticked relative paths and line ranges (e.g., `` `src/driver/cece_driver_facade.cpp:455-466` ``).
+- **Recommended Post Location**: Include a `- **Recommended Post Location**:` bullet on every `[P*]` finding specifying the exact GitHub PR target where the comment should be posted (e.g., `Inline on \`src/driver/cece_driver_facade.cpp\` (lines 455–466)` or `Top-level PR conversation comment` if not tied to a single diff hunk).
+- **Structured Review Comment Body**: Immediately below the metadata bullets (`Location`, `Recommended Post Location`, `Tag`), format the body using the **Review Comment Template** so it can be copy-pasted directly into a GitHub review comment:
+  ```markdown
+  **[Category]: [Short description of the issue]**
+
+  [Describe what happens and where. Be specific and lead with the behavior or risk.]
+
+  [Explain the impact on users or the system, if it isn’t already clear.]
+
+  **Suggested fix:** [One actionable change.]
+
+  **Test:** [A focused test that would catch this issue.]
+  ````suggestion
+  [Small, directly applicable replacement code]
+  ````
+  ```
+  - **Omit sections that don't add useful context**: Omit the second impact paragraph if the first paragraph already makes the impact clear. Include `**Test:**` only when a focused test is useful (omit for docs, nits, or deleting duplicate tests).
+  - **Use the `suggestion` block only when the fix is a small, directly applicable code replacement**: Do not emit empty suggestion blocks or multi-hundred-line rewrites inside a `suggestion` fence; place larger or multi-region fixes in Section 6's unified diff patch instead.
+- Include unified diff hunks ready for `git apply` in Section 6.
 - If the PR was checked out locally in scratch space, validate unified diff patches with `git apply --check` or verify syntax against the checked out files before including them in the report.
 
 ### Phase 7: Output File Generation & User Presentation
@@ -259,32 +279,47 @@ The generated markdown document MUST adhere to this structure:
 - **False Confidence / Gating Explanation**: <Detailed analysis explaining why passing CI did not exercise latent defects>
 
 ## 4. Prioritized Action Items
-- [ ] **[P0]** <Summary of blocker> — [chem/rates.F90:42](file:///path/to/repo/chem/rates.F90#L42)
-- [ ] **[P1]** <Summary of major bug> — [chem/driver.F90:110](file:///path/to/repo/chem/driver.F90#L110)
-- [ ] **[P2]** <Ponytail over-engineering reduction> — [chem/utils.F90:15](file:///path/to/repo/chem/utils.F90#L15)
+- [ ] **[P0]** <Summary of blocker> — `chem/rates.F90:42`
+- [ ] **[P1]** <Summary of major bug> — `chem/driver.F90:110`
+- [ ] **[P2]** Ponytail: <First single-file over-engineering reduction> — `chem/utils.F90:15-26`
+- [ ] **[P2]** Ponytail: <Second single-file over-engineering reduction> — `tests/test_rates.F90:40-85`
 
 ## 5. Detailed Findings & Machine-Applicable Suggestions
 
-Every `[P*]` finding MUST include the four core fields (`Location`, `Tag`, `Problem`, `Recommendation`), followed by an optional `1-Click Suggestion` block when an inline replacement applies:
+Every `[P*]` finding MUST be scoped to a single cohesive issue/file (never bundle multiple Ponytail themes or unrelated files into one item), MUST omit `file:///` URLs, and MUST begin with three metadata bullets (`Location`, `Recommended Post Location`, `Tag`), followed by a ready-to-paste **Review Comment Template** block. Omit template sections that do not add useful context, and include a `suggestion` fence ONLY when the fix is a small, directly applicable replacement:
 
-### [P0] Numerical Instability / Physics Error
-- **Location**: [`chem/rates.F90:42`](file:///path/to/repo/chem/rates.F90#L42)
+### [P0] <Short title>
+- **Location**: `chem/rates.F90:42`
+- **Recommended Post Location**: Inline on `chem/rates.F90` (line `42`)
 - **Tag**: `[defect / physics]` | Lines affected: 4 lines
-- **Problem**: <Clear explanation of defect, root cause, and runtime/scientific impact>
-- **Recommendation**: <Actionable fix recommendation grounded in atmospheric chemistry physics and NOAA OMD standards>
-- **1-Click Suggestion**:
+
+**[Category]: [Short description of the issue]**
+
+[Describe what happens and where. Be specific and lead with the behavior or risk.]
+
+[Explain the impact on users or the system, if it isn’t already clear.]
+
+**Suggested fix:** [One actionable change.]
+
+**Test:** [A focused test that would catch this issue.]
+
 ````suggestion
-<replacement code>
+[Small, directly applicable replacement code]
 ````
 
-### [P2] Ponytail: Delete Redundant Helper
-- **Location**: [`chem/utils.F90:15`](file:///path/to/repo/chem/utils.F90#L15)
+### [P2] Ponytail: <Single-file simplification title>
+- **Location**: `chem/utils.F90:15-26`
+- **Recommended Post Location**: Inline on `chem/utils.F90` (lines `15-26`)
 - **Tag**: `[delete / deduplicate]` | Lines removable: ~12 lines
-- **Problem**: <Explanation of dead code, duplication, or speculative complexity>
-- **Recommendation**: <Eliminate unused wrapper or duplicate block in favor of native standard library call or shared helper>
-- **1-Click Suggestion**:
+
+**Simplification: [Short description of the redundancy or dead code]**
+
+[Describe what is duplicated or unused and where.]
+
+**Suggested fix:** [One actionable change to delete or deduplicate.]
+
 ````suggestion
-<replacement code>
+[Small, directly applicable replacement code]
 ````
 
 ## 6. Machine-Applicable Unified Diff Patch
