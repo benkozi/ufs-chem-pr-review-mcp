@@ -207,8 +207,15 @@ For every finding:
   [Small, directly applicable replacement code]
   ````
   ```
-  - **Omit sections that don't add useful context**: Omit the second impact paragraph if the first paragraph already makes the impact clear. Include `**Test:**` only when a focused test is useful (omit for docs, nits, or deleting duplicate tests).
-  - **Use the `suggestion` block only when the fix is a small, directly applicable code replacement**: Do not emit empty suggestion blocks or multi-hundred-line rewrites inside a `suggestion` fence; place larger or multi-region fixes in Section 6's unified diff patch instead.
+  - **Keep prose concise (up to 5 sentences)**: Limit the problem/impact description to **2–5 sentences** total. Lead directly with what happens and where, state the runtime or scientific impact, and omit filler or sections that don't add useful context (e.g., omit the second impact paragraph if the first already makes the impact clear, and include `**Test:**` only when a focused test is useful).
+  - **Strict Complexity & Size Limit on `suggestion` Blocks ($\le 15$ lines, single contiguous hunk)**:
+    - Include a ````suggestion```` block **only** when the fix is a simple, self-contained replacement of **at most 15 lines** at a single contiguous diff location with low branching complexity.
+    - **Omit** the ````suggestion```` block whenever:
+      1. The replacement exceeds **15 lines** or introduces multi-branch control flow / loops,
+      2. Applying the fix requires coordinated edits across multiple non-contiguous locations or files (a 1-click suggestion on one line range would leave the other sites broken),
+      3. The target file is not part of the PR diff (GitHub cannot attach an inline suggestion outside the diff), or
+      4. The change is a large deletion (e.g., removing >15 lines of dead/duplicate code).
+    - When a ````suggestion```` block is omitted due to size or complexity, describe the change concisely in `**Suggested fix:**` and put the full implementation in Section 6's unified diff patch.
 - Include unified diff hunks ready for `git apply` in Section 6.
 - If the PR was checked out locally in scratch space, validate unified diff patches with `git apply --check` or verify syntax against the checked out files before including them in the report.
 
@@ -286,7 +293,7 @@ The generated markdown document MUST adhere to this structure:
 
 ## 5. Detailed Findings & Machine-Applicable Suggestions
 
-Every `[P*]` finding MUST be scoped to a single cohesive issue/file (never bundle multiple Ponytail themes or unrelated files into one item), MUST omit `file:///` URLs, and MUST begin with three metadata bullets (`Location`, `Recommended Post Location`, `Tag`), followed by a ready-to-paste **Review Comment Template** block. Omit template sections that do not add useful context, and include a `suggestion` fence ONLY when the fix is a small, directly applicable replacement:
+Every `[P*]` finding MUST be scoped to a single cohesive issue/file (never bundle multiple Ponytail themes or unrelated files into one item), MUST omit `file:///` URLs, and MUST begin with three metadata bullets (`Location`, `Recommended Post Location`, `Tag`), followed by a ready-to-paste **Review Comment Template** block. Keep the problem/impact prose concise (**2–5 sentences max**), omit template sections that do not add useful context, and include a `suggestion` fence ONLY when the fix is a simple, single-hunk replacement of $\le 15$ lines:
 
 ### [P0] <Short title>
 - **Location**: `chem/rates.F90:42`
