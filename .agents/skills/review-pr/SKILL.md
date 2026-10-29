@@ -265,19 +265,27 @@ The generated markdown document MUST adhere to this structure:
 
 ## 5. Detailed Findings & Machine-Applicable Suggestions
 
+Every `[P*]` finding MUST include the four core fields (`Location`, `Tag`, `Problem`, `Recommendation`), followed by an optional `1-Click Suggestion` block when an inline replacement applies:
+
 ### [P0] Numerical Instability / Physics Error
-- **Location**: [chem/rates.F90:42](file:///path/to/repo/chem/rates.F90#L42)
-- **Problem**: <Clear explanation of defect>
-- **Rationale**: <Atmospheric chemistry and NOAA OMD reasoning>
+- **Location**: [`chem/rates.F90:42`](file:///path/to/repo/chem/rates.F90#L42)
+- **Tag**: `[defect / physics]` | Lines affected: 4 lines
+- **Problem**: <Clear explanation of defect, root cause, and runtime/scientific impact>
+- **Recommendation**: <Actionable fix recommendation grounded in atmospheric chemistry physics and NOAA OMD standards>
 - **1-Click Suggestion**:
 ````suggestion
 <replacement code>
 ````
 
-### [P2] Ponytail Over-Engineering: Delete Redundant Helper
-- **Location**: [chem/utils.F90:15](file:///path/to/repo/chem/utils.F90#L15)
-- **Tag**: `[delete]` | Lines removable: ~12 lines
-- **Recommendation**: <Eliminate unused wrapper in favor of native standard library call>
+### [P2] Ponytail: Delete Redundant Helper
+- **Location**: [`chem/utils.F90:15`](file:///path/to/repo/chem/utils.F90#L15)
+- **Tag**: `[delete / deduplicate]` | Lines removable: ~12 lines
+- **Problem**: <Explanation of dead code, duplication, or speculative complexity>
+- **Recommendation**: <Eliminate unused wrapper or duplicate block in favor of native standard library call or shared helper>
+- **1-Click Suggestion**:
+````suggestion
+<replacement code>
+````
 
 ## 6. Machine-Applicable Unified Diff Patch
 ```diff

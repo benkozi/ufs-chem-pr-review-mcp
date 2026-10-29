@@ -241,9 +241,9 @@ def parse_review_markdown_findings(
     comments: list[LocalReviewCommentInput] = []
 
     pattern = re.compile(
-        r"###\s*\[(P[0-3])\]\s*([^\n]+)\n"
-        r"(?:.*?- \*\*Location\*\*:\s*\[?([^:\n\]]+)(?::|#L)?(\d+)?\]?[^\n]*\n)?"
-        r"(.*?)(?=(?:\n###\s*\[P[0-3]\]|\n##\s|\Z))",
+        r"###\s*`?\[(P[0-3])\]`?\s*([^\n]+)\n"
+        r"(?:.*?- \*\*Location\*\*:\s*\[?`?([^:`\n\]]+)(?::|#L)?(\d+)?`?\]?[^\n]*\n)?"
+        r"(.*?)(?=(?:\n###\s*`?\[P[0-3]\]`?|\n##\s|\Z))",
         re.DOTALL,
     )
 
@@ -251,7 +251,7 @@ def parse_review_markdown_findings(
         sev_str, title, raw_path, raw_line, content = m.groups()
         severity = FindingSeverity(sev_str)
         path = (
-            raw_path.strip().replace("file://", "").split("#")[0].strip()
+            raw_path.strip().strip("`").replace("file://", "").split("#")[0].strip()
             if raw_path
             else "unknown"
         )
