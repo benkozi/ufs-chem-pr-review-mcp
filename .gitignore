@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Scratch space
+scratch/
+
+# Scratch space
+scratch/
