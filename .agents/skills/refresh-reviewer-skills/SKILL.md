@@ -87,7 +87,7 @@ When refreshing reviewer skills and guidelines, inspect and reconcile against al
        - `**[Category]: [Short description of the issue]**`
        - Concise **2–5 sentence** problem and impact prose.
        - `**Suggested fix:** [One actionable change.]`
-       - Optional `**Test:** [A focused test that would catch this issue.]` (included when useful; omitted when not).
+       - `**Test:** [A focused test or verification step that would catch this issue.]` (required on all ready-to-post comments).
        - Optional ````suggestion```` block (**strictly $\le 15$ lines**, single contiguous diff hunk, low branching complexity; omitted for multi-region or complex refactors).
 
 ---

@@ -227,7 +227,10 @@ For every finding:
   [Small, directly applicable replacement code]
   ````
   ```
-  - **Keep prose concise (up to 5 sentences)**: Limit the problem/impact description to **2–5 sentences** total. Lead directly with what happens and where, state the runtime or scientific impact, and omit filler or sections that don't add useful context (e.g., omit the second impact paragraph if the first already makes the impact clear, and include `**Test:**` only when a focused test is useful).
+  - **Keep prose concise (up to 5 sentences)**: Limit the problem/impact description to **2–5 sentences** total. Lead directly with what happens and where, state the runtime or scientific impact, and omit filler (e.g., omit the second impact paragraph if the first already makes the impact clear).
+  - **Always Include `**Suggested fix:**` and `**Test:**` in Ready-to-Post Comments**:
+    - Every `[P*]` finding in Section 5 MUST include the bolded header `**[Category]: [Short description of the issue]**`, `**Suggested fix:**`, and `**Test:**` inside the ready-to-paste comment body.
+    - For `[P0]`, `[P1]`, and code/architecture `[P2]` findings, `**Test:**` must specify a concrete, focused unit test, property test, CTest target, or runtime/config verification step that catches the issue or verifies the simplification. For pure documentation or comment nits (`[P3]`), `**Test:**` may specify the doc-build, config validator, or grep check that confirms the fix.
   - **Strict Complexity & Size Limit on `suggestion` Blocks ($\le 15$ lines, single contiguous hunk)**:
     - Include a ````suggestion```` block **only** when the fix is a simple, self-contained replacement of **at most 15 lines** at a single contiguous diff location with low branching complexity.
     - **Omit** the ````suggestion```` block whenever:
@@ -316,7 +319,7 @@ The generated markdown document MUST adhere to this structure:
 
 ## 5. Detailed Findings & Machine-Applicable Suggestions
 
-Every `[P*]` finding MUST be scoped to a single cohesive issue/file (never bundle multiple Ponytail themes or unrelated files into one item), MUST omit `file:///` URLs, and MUST begin with three metadata bullets (`Location`, `Recommended Post Location`, `Tag`), followed by a ready-to-paste **Review Comment Template** block. Keep the problem/impact prose concise (**2–5 sentences max**), omit template sections that do not add useful context, and include a `suggestion` fence ONLY when the fix is a simple, single-hunk replacement of $\le 15$ lines:
+Every `[P*]` finding MUST be scoped to a single cohesive issue/file (never bundle multiple Ponytail themes or unrelated files into one item), MUST omit `file:///` URLs, and MUST begin with three metadata bullets (`Location`, `Recommended Post Location`, `Tag`), followed by a ready-to-paste **Review Comment Template** block containing `**[Category]: [Short description]**`, concise problem/impact prose (**2–5 sentences max**), `**Suggested fix:**`, and `**Test:**` (a focused test or verification step), plus a `suggestion` fence ONLY when the fix is a simple, single-hunk replacement of $\le 15$ lines:
 
 ### [P0] <Short title>
 - **Location**: `chem/rates.F90:42`
@@ -347,6 +350,8 @@ Every `[P*]` finding MUST be scoped to a single cohesive issue/file (never bundl
 [Describe what is duplicated or unused and where.]
 
 **Suggested fix:** [One actionable change to delete or deduplicate.]
+
+**Test:** [Existing or new test target / assertion that verifies behavior is preserved after simplification.]
 
 ````suggestion
 [Small, directly applicable replacement code]

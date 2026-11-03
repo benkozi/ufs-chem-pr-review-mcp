@@ -224,3 +224,5 @@ scratch/
 
 # Scratch space
 scratch/
+
+.DS_Store
