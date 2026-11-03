@@ -22,7 +22,6 @@ from ufs_chem_pr_review_mcp.logs import configure_logging, get_logger
 from ufs_chem_pr_review_mcp.models.common import (
     OutputFormat,
     ReviewCategory,
-    ReviewEvent,
     ReviewMode,
     SupportedLanguage,
 )
@@ -35,6 +34,7 @@ from ufs_chem_pr_review_mcp.models.github import (
 from ufs_chem_pr_review_mcp.models.local_review import (
     LocalReviewCommentInput,
     RecordReviewCommentsResponse,
+    build_pending_review_payload,
     parse_review_markdown_findings,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
@@ -259,16 +259,12 @@ def _render_github_json(ctx: ReviewContextResponse) -> str:
             )
         )
 
-    max_crit = max([df.criticality for df in ctx.domain_findings], default=1)
-    event = ReviewEvent.REQUEST_CHANGES if max_crit >= 4 else ReviewEvent.COMMENT
-
     summary_text = _render_markdown(ctx)
     payload = GitHubReviewPayload(
-        event=event,
         body=summary_text,
         comments=comments,
     )
-    return payload.model_dump_json(indent=2)
+    return payload.to_gh_api_json()
 
 
 def _format_context_response(ctx: ReviewContextResponse, output_format: str) -> str:
@@ -541,21 +537,18 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                     path=f["path"],
                     line=f["line"],
                     side=f.get("side", "RIGHT"),
+                    start_line=f.get("start_line"),
+                    start_side=f.get("start_side"),
                     body=f.get("body", ""),
                     suggested_change=f.get("suggested_change"),
                 )
                 for f in findings
             ]
-            # Replace bodies with rendered_body for GitHub suggestion blocks
-            rendered_comments = [
-                c.model_copy(update={"body": c.rendered_body()}) for c in comments
-            ]
             payload = GitHubReviewPayload(
-                event=ReviewEvent.COMMENT,
                 body=critical_summary,
-                comments=rendered_comments,
+                comments=comments,
             )
-            return payload.model_dump_json(indent=2)
+            return payload.to_gh_api_json()
 
         # Markdown output
         lines = [f"## Code Review Summary\n\n{critical_summary}\n"]
@@ -578,7 +571,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
     # 7. record_review_comments
     @mcp.tool(
         annotations=MUTATING_ANNOTATIONS,
-        description="Immediately records code review comments and findings into the local review database (data/ufs_chem_reviews.sqlite3). Accepts structured findings or a markdown review report file path.",
+        description="Immediately records code review comments and findings into the local review database (data/ufs_chem_reviews.sqlite3) and writes a pending-only review_payload.json alongside review_file_path for gh api.",
     )
     def record_review_comments(
         repo: str | None = None,
@@ -587,6 +580,9 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         comments: list[dict[str, Any]] | None = None,
         review_file_path: str | None = None,
         markdown_text: str | None = None,
+        payload_output_path: str | None = None,
+        diff_text: str | None = None,
+        commit_id: str | None = None,
         source_tag: str = "agent-deep-dive",
     ) -> str:
         if pr_url:
@@ -610,6 +606,9 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             )
 
         parsed_comments: list[LocalReviewCommentInput] = []
+        resolved_payload_path: Path | None = (
+            Path(payload_output_path) if payload_output_path else None
+        )
 
         if comments:
             for c in comments:
@@ -620,6 +619,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             if fpath.exists():
                 text = fpath.read_text(encoding="utf-8")
                 parsed_comments.extend(parse_review_markdown_findings(text))
+                if resolved_payload_path is None:
+                    resolved_payload_path = fpath.parent / "review_payload.json"
             else:
                 logger.warning(f"review_file_path does not exist: {review_file_path}")
 
@@ -640,6 +641,19 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             comments=parsed_comments,
         )
 
+        written_payload_str: str | None = None
+        if resolved_payload_path is not None:
+            resolved_payload_path.parent.mkdir(parents=True, exist_ok=True)
+            pending_payload = build_pending_review_payload(
+                comments=parsed_comments,
+                diff_text=diff_text,
+                commit_id=commit_id,
+            )
+            resolved_payload_path.write_text(
+                pending_payload.to_gh_api_json() + "\n", encoding="utf-8"
+            )
+            written_payload_str = str(resolved_payload_path.resolve())
+
         response = RecordReviewCommentsResponse(
             repo=target_repo,
             pr_number=target_pr,
@@ -647,6 +661,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             inserted_count=inserted,
             updated_count=updated,
             db_path=str(db.db_path),
+            review_payload_path=written_payload_str,
             recorded_comments=summaries,
         )
         return response.model_dump_json(indent=2)

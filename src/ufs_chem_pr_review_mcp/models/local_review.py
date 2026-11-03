@@ -7,6 +7,10 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ufs_chem_pr_review_mcp.models.common import ReviewCategory, SupportedLanguage
+from ufs_chem_pr_review_mcp.models.github import (
+    GitHubInlineComment,
+    GitHubReviewPayload,
+)
 
 
 class FindingSeverity(str, Enum):
@@ -131,6 +135,10 @@ class RecordReviewCommentsInput(BaseModel):
         default=None,
         description="Raw markdown review report content from which findings will be extracted automatically",
     )
+    payload_output_path: str | None = Field(
+        default=None,
+        description="Optional file path where the pending-only review_payload.json for gh api will be written",
+    )
     source_tag: str = Field(
         default="agent-deep-dive",
         description="Source identifier tag indicating review provenance",
@@ -183,6 +191,10 @@ class RecordReviewCommentsResponse(BaseModel):
         description="Number of existing comments updated in place"
     )
     db_path: str = Field(description="Absolute path to the SQLite review database")
+    review_payload_path: str | None = Field(
+        default=None,
+        description="Absolute path to the generated pending-only review_payload.json file for gh api",
+    )
     recorded_comments: list[RecordedCommentSummary] = Field(
         default_factory=list,
         description="List of recorded comments and their synthetic node IDs",
@@ -242,13 +254,17 @@ def parse_review_markdown_findings(
 
     pattern = re.compile(
         r"###\s*`?\[(P[0-3])\]`?\s*([^\n]+)\n"
-        r"(?:.*?- \*\*Location\*\*:\s*\[?`?([^:`\n\]]+)(?::|#L)?(\d+)?`?\]?[^\n]*\n)?"
+        r"(?:.*?- \*\*Location\*\*:\s*\[?`?([^:`\n\]]+)(?::|#L)?(\d+)?(?:-L?(\d+))?`?\]?[^\n]*\n)?"
         r"(.*?)(?=(?:\n###\s*`?\[P[0-3]\]`?|\n##\s|\Z))",
         re.DOTALL,
     )
+    post_loc_pattern = re.compile(
+        r"- \*\*Recommended Post Location\*\*:\s*[^\n]*?(?::|#L|lines?\s+`?)(\d+)(?:-L?(\d+))?",
+        re.IGNORECASE,
+    )
 
     for m in pattern.finditer(markdown_text):
-        sev_str, title, raw_path, raw_line, content = m.groups()
+        sev_str, title, raw_path, raw_line, raw_end_line, content = m.groups()
         severity = FindingSeverity(sev_str)
         path = (
             raw_path.strip().strip("`").replace("file://", "").split("#")[0].strip()
@@ -258,19 +274,42 @@ def parse_review_markdown_findings(
         # Strip leading slashes if file:/// was used without relative path prefix
         if path.startswith("/"):
             path = path.lstrip("/")
-        line = int(raw_line) if raw_line else None
 
-        sugg_match = re.search(r"```suggestion\n(.*?)\n```", content, re.DOTALL)
+        first_line = int(raw_line) if raw_line else None
+        end_line = int(raw_end_line) if raw_end_line else None
+
+        post_match = post_loc_pattern.search(content)
+        if post_match:
+            first_line = int(post_match.group(1))
+            end_line = int(post_match.group(2)) if post_match.group(2) else None
+
+        if first_line is not None and end_line is not None and end_line > first_line:
+            start_line: int | None = first_line
+            line: int | None = end_line
+        else:
+            start_line = None
+            line = first_line
+
+        cleaned_content = re.sub(
+            r"^\s*- \*\*(?:Recommended Post Location|Tag)\*\*:[^\n]*\n?",
+            "",
+            content,
+            flags=re.MULTILINE,
+        )
+        cleaned_content = re.sub(r"\n+---\s*\Z", "", cleaned_content).strip()
+
+        sugg_match = re.search(r"```suggestion\n(.*?)\n```", cleaned_content, re.DOTALL)
         suggested_change = sugg_match.group(1) if sugg_match else None
 
-        category = _infer_finding_category(title, content)
+        category = _infer_finding_category(title, cleaned_content)
         lang = detect_language(path)
 
-        body = f"**[{severity.value} - {severity.label}] {title.strip()}**\n\n{content.strip()}"
+        body = f"**[{severity.value} - {severity.label}] {title.strip()}**\n\n{cleaned_content}"
         comments.append(
             LocalReviewCommentInput(
                 path=path,
                 line=line,
+                start_line=start_line,
                 body=body,
                 category=category,
                 severity=severity,
@@ -281,6 +320,133 @@ def parse_review_markdown_findings(
         )
 
     return comments
+
+
+def parse_diff_right_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
+    """Extract valid right-side (new file) line ranges per file from a unified diff."""
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    current_file: str | None = None
+    hunk_re = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+    for raw_line in diff_text.splitlines():
+        if raw_line.startswith("+++ b/"):
+            current_file = raw_line[6:].strip()
+            ranges.setdefault(current_file, [])
+        elif raw_line.startswith("@@ ") and current_file:
+            hm = hunk_re.match(raw_line)
+            if hm:
+                start = int(hm.group(1))
+                count = int(hm.group(2)) if hm.group(2) is not None else 1
+                if count > 0:
+                    ranges[current_file].append((start, start + count - 1))
+
+    return ranges
+
+
+def _range_in_hunks(
+    start_line: int, end_line: int, hunks: list[tuple[int, int]]
+) -> bool:
+    """Return True if [start_line, end_line] lies inside at least one diff hunk."""
+    return any(h_start <= start_line and end_line <= h_end for h_start, h_end in hunks)
+
+
+def build_pending_review_payload(
+    comments: list[LocalReviewCommentInput],
+    diff_text: str | None = None,
+    commit_id: str | None = None,
+) -> GitHubReviewPayload:
+    """Build a pending-only GitHubReviewPayload (no event field) from review findings.
+
+    If ``diff_text`` is provided, findings whose file or line range falls outside
+    the PR's right-side diff hunks are automatically folded into the top-level
+    pending review summary body so ``gh api`` never rejects the POST with HTTP 422.
+    """
+    diff_ranges = parse_diff_right_ranges(diff_text) if diff_text else {}
+    has_diff_filter = bool(diff_ranges)
+
+    inline_comments: list[GitHubInlineComment] = []
+    out_of_diff_notes: list[str] = []
+
+    for c in comments:
+        temp_comment = GitHubInlineComment(
+            path=c.path,
+            line=c.line or 1,
+            body=c.body,
+            suggested_change=c.suggested_change,
+        )
+        rendered_text = temp_comment.rendered_body()
+
+        if c.line is None or c.path == "unknown":
+            loc_label = f"`{c.path}`" if c.path != "unknown" else "General"
+            out_of_diff_notes.append(f"#### {loc_label}\n\n{rendered_text}")
+            continue
+
+        s_line = (
+            c.start_line
+            if (c.start_line is not None and c.start_line < c.line)
+            else None
+        )
+
+        if has_diff_filter:
+            file_hunks = diff_ranges.get(c.path, [])
+            eff_start = s_line if s_line is not None else c.line
+            if _range_in_hunks(eff_start, c.line, file_hunks):
+                inline_comments.append(
+                    GitHubInlineComment(
+                        path=c.path,
+                        line=c.line,
+                        side="RIGHT",
+                        start_line=s_line,
+                        start_side="RIGHT" if s_line is not None else None,
+                        body=rendered_text,
+                    )
+                )
+            elif c.suggested_change is None and _range_in_hunks(
+                c.line, c.line, file_hunks
+            ):
+                inline_comments.append(
+                    GitHubInlineComment(
+                        path=c.path,
+                        line=c.line,
+                        side="RIGHT",
+                        body=rendered_text,
+                    )
+                )
+            else:
+                loc_str = (
+                    f"`{c.path}:{s_line}-{c.line}`"
+                    if s_line is not None
+                    else f"`{c.path}:{c.line}`"
+                )
+                out_of_diff_notes.append(f"#### {loc_str}\n\n{rendered_text}")
+        else:
+            inline_comments.append(
+                GitHubInlineComment(
+                    path=c.path,
+                    line=c.line,
+                    side="RIGHT",
+                    start_line=s_line,
+                    start_side="RIGHT" if s_line is not None else None,
+                    body=rendered_text,
+                )
+            )
+
+    summary_parts = [
+        f"Pending code review generated by `ufs-chem-pr-review-mcp` "
+        f"({len(inline_comments)} inline diff comment(s), "
+        f"{len(out_of_diff_notes)} file/out-of-diff finding(s))."
+    ]
+    if out_of_diff_notes:
+        summary_parts.append(
+            "### File-Level & Out-of-Diff Findings\n\n"
+            + "\n\n---\n\n".join(out_of_diff_notes)
+        )
+
+    return GitHubReviewPayload(
+        commit_id=commit_id,
+        body="\n\n".join(summary_parts),
+        comments=inline_comments,
+    )
 
 
 def _infer_finding_category(title: str, content: str) -> ReviewCategory:

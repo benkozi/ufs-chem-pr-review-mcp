@@ -183,9 +183,9 @@ uv run ufs-chem-pr-review-sync \
 - `evaluate_diff`: Analyzes raw unified diff text locally without making external GitHub API calls.
 - `search_review_history`: Performs full-text search (SQLite FTS5) across past review comments with repository, language, and category filters.
 - `get_repo_review_stats`: Returns review metrics, comment volumes, and top category patterns for a repository.
-- `format_review_output`: Formats findings into `markdown`, `patch` (`git apply`), or `github_json` format.
+- `format_review_output`: Formats findings into `markdown`, `patch` (`git apply`), or pending-only `github_json` format (omits `"event"` so it can only ever create a `PENDING` review on GitHub).
 - `generate_patch`: Combines multiple `CodePatch` hunks into a single unified diff patch.
-- `record_review_comments`: Ingests deep-dive code review findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) from parsed review markdown report files or structured objects, ensuring instant retrieval in subsequent reviews with deterministic synthetic IDs and seamless upstream reconciliation.
+- `record_review_comments`: Ingests deep-dive code review findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) from parsed review markdown report files or structured objects, and automatically writes a pending-only `review_payload.json` alongside `review_file_path` for staging draft reviews via `gh api`.
 
 ### Resources
 - `ufs-chem://repositories`: JSON catalog of tracked repositories and branch configurations.
@@ -194,6 +194,55 @@ uv run ufs-chem-pr-review-sync \
 
 ### Prompts
 - `review_pr`: Prompting template that guides the user's client LLM through an atmospheric chemistry pull request review workflow. See [**`docs/example-prompts.md`**](docs/example-prompts.md) for usage patterns.
+
+---
+
+## Posting Pending Reviews to GitHub (`gh api`)
+
+When `record_review_comments` is called with `review_file_path` (automatically triggered in Phase 8 of the `review-pr` skill), it writes a GitHub REST API payload file named **`review_payload.json`** in the **same directory as the markdown review report**:
+
+```text
+/path/to/review-dir/
+├── <review-name>.md
+└── review_payload.json   <-- Auto-generated pending-only gh api payload
+```
+
+*(You can also override the output location by passing `payload_output_path` to `record_review_comments`, and the exact resolved path is returned in the tool response as `review_payload_path`.)*
+
+### 1. Pending-Only Safety Guarantee
+`GitHubReviewPayload` strictly omits (and forbids via Pydantic `extra="forbid"`) the `"event"` field. In GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` REST API, omitting `"event"` guarantees that the API **only ever creates a `PENDING` draft review** visible only to you in the GitHub UI—it can never publicly submit `APPROVE`, `REQUEST_CHANGES`, or `COMMENT` until you inspect the draft on GitHub and click **Submit review**.
+
+### 2. How to Pass a Write-Capable Token to `gh api`
+Keeping your default `gh auth` session read-only is recommended for normal day-to-day browsing and MCP queries. To stage a pending review on GitHub without modifying your stored `gh auth` login, pass a write-capable token for that single command via the `GH_TOKEN` environment variable:
+
+```bash
+# Recommended: Read a write-scoped PAT from a chmod 600 file (keeps token out of shell history)
+GH_TOKEN="$(< ~/.config/gh/pr_write_token)" gh api \
+  repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+  --method POST \
+  --input /path/to/review-dir/review_payload.json
+
+# Or pass inline for a one-off invocation
+GH_TOKEN="github_pat_..." gh api \
+  repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+  --method POST \
+  --input /path/to/review-dir/review_payload.json
+```
+
+#### Required Token Scopes
+- **Fine-grained Personal Access Token (recommended)**:
+  - **Resource owner**: Target organization or user (e.g., `NOAA-EMC`, `ufs-community`)
+  - **Repository access**: Selected repositories (or All repositories)
+  - **Repository permissions**:
+    - **Pull requests**: `Read and write` *(required to create pending reviews and inline diff comments)*
+    - **Contents**: `Read-only` *(required to resolve commit SHAs and diff blobs)*
+- **Classic Personal Access Token**:
+  - `public_repo` (for public repositories) or `repo` (for private/internal repositories).
+
+> [!NOTE]
+> **One Pending Review per PR Limit & Diff-Hunk Validation**:
+> - GitHub allows at most **one** `PENDING` review per user per PR at a time. If you already have an open pending review on the PR, either submit/discard it in the GitHub **Files changed** tab first, or delete the pending draft via `gh api`.
+> - If `diff_text` is passed to `record_review_comments` (or `build_pending_review_payload`), any finding targeting a file or line range outside the PR's right-side diff hunks is automatically moved into the top-level pending review summary `body` (`### File-Level & Out-of-Diff Findings`) so GitHub never rejects the `POST` with `HTTP 422 (PullRequestReviewComment.line must be part of the diff)`.
 
 ---
 

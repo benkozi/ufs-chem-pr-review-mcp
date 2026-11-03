@@ -243,7 +243,7 @@ For every finding:
 - If the PR was checked out locally in scratch space, validate unified diff patches with `git apply --check` or verify syntax against the checked out files before including them in the report.
 
 ### Phase 7: Output File Generation & User Presentation
-1. Write the complete, formatted report directly to the target file path using `write_to_file`.
+1. Write the complete, formatted report directly to the target file path using `write_to_file` / `write_file`.
 2. Present a concise confirmation response to the user:
    - Executive verdict (APPROVE / REQUEST CHANGES / COMMENT).
    - CI check status & false-confidence analysis (why checks passed despite issues).
@@ -252,10 +252,10 @@ For every finding:
    - Prioritized finding counts ($N_{P0}, N_{P1}, N_{P2}, N_{P3}$).
    - Ponytail metric summary (Net lines removable).
    - Database Ingestion status (number of findings recorded to historical database).
-   - Clickable file link to the generated review artifact.
+   - Clickable file links to both the generated review markdown artifact and the co-located `review_payload.json` pending-review payload, plus the copy-pasteable `gh api` command to stage the pending review on GitHub.
 
-### Phase 8: Immediate Database Ingestion (Default Hook)
-Immediately after generating the review report, the agent automatically persists all actionable review findings into the local historical review database (`data/ufs_chem_reviews.sqlite3`):
+### Phase 8: Immediate Database Ingestion & Pending-Only `review_payload.json` Generation (Default Hook)
+Immediately after generating the review report, the agent automatically persists all actionable review findings into the local historical review database (`data/ufs_chem_reviews.sqlite3`) **and** writes a pending-only GitHub REST API payload (`review_payload.json`) alongside the markdown report:
 
 1. **Invoke `record_review_comments`**:
    Call the `record_review_comments` tool on the `ufs-chem-pr-review` MCP server (via `call_mcp_tool` or directly):
@@ -263,17 +263,40 @@ Immediately after generating the review report, the agent automatically persists
      ```json
      {
        "pr_url": "<pr_url>",
-       "review_file_path": "<target_output_file_path>"
+       "review_file_path": "<target_output_file_path>",
+       "commit_id": "<head_sha_40_char>"
      }
      ```
+     *(Optionally pass `"diff_text"` or `"payload_output_path"` if you want to filter out-of-hunk comments against a specific diff string or write `review_payload.json` to a custom path.)*
 2. **Under the Hood Execution**:
-   - The MCP tool parses all P0, P1, P2, and P3 findings and suggestions directly from the report file.
-   - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`).
-   - Inserts or updates the findings into `data/ufs_chem_reviews.sqlite3`.
-   - SQLite FTS5 trigger `comments_ai` immediately indexes the findings into `comments_fts`.
-3. **Precedent Availability**:
-   - These findings are now immediately discoverable via `search_review_history` and will be ranked as historical precedents in subsequent reviews of other PRs.
-   - If the user or developer subsequently posts these comments to GitHub and runs `ufs-chem-pr-review-sync`, the sync engine automatically reconciles matching coordinates and text, replacing the local draft with the official GitHub comment with zero duplicates.
+   - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
+   - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).
+   - **Writes `<target_output_dir>/review_payload.json`**: Serializes a `GitHubReviewPayload` in the same directory as `review_file_path`.
+   - **Pending-Only Safety Guarantee**: `GitHubReviewPayload` strictly omits (and forbids) the `"event"` field. Because GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` API sets a review to `PENDING` whenever `"event"` is omitted, `review_payload.json` can **only ever create a private `PENDING` draft review** on GitHub—it can never publicly submit `COMMENT`, `REQUEST_CHANGES`, or `APPROVE`.
+3. **Posting the Pending Review to GitHub via `gh api`**:
+   - **Where `review_payload.json` is written**: Always written to `<parent_dir_of_review_md>/review_payload.json` (and returned in `RecordReviewCommentsResponse.review_payload_path`).
+   - **Passing a write-capable token without altering default `gh auth`**:
+     If your default `gh auth login` session uses a read-only token, pass a write-scoped Personal Access Token per-command via the `GH_TOKEN` environment variable (which `gh api` honors for that single invocation without modifying your stored keyring credentials):
+     ```bash
+     # Option A: Read write-scoped PAT from a local file (recommended to keep token out of shell history)
+     GH_TOKEN="$(< ~/.config/gh/pr_write_token)" gh api \
+       repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+       --method POST \
+       --input /path/to/review_payload.json
+
+     # Option B: Inline environment variable
+     GH_TOKEN="github_pat_..." gh api \
+       repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+       --method POST \
+       --input /path/to/review_payload.json
+     ```
+   - **Required GitHub Token Permissions**:
+     - **Fine-grained PAT (recommended)**: Repository access to target repo(s) with **Pull requests: Read and write** and **Contents: Read-only**.
+     - **Classic PAT**: `public_repo` scope (for public repos) or `repo` scope (for private/internal repos).
+   - **Note on Existing Pending Reviews**: GitHub allows at most one `PENDING` review per user per PR at a time. If you already have an open pending review on that PR, either submit/discard it in the GitHub PR **Files changed** tab first, or delete the existing draft via `gh api`.
+4. **Precedent Availability & Upstream Reconciliation**:
+   - Findings are immediately discoverable via `search_review_history` and ranked as historical precedents in subsequent reviews.
+   - Once you review and submit the pending draft on GitHub and run `ufs-chem-pr-review-sync`, the sync engine automatically reconciles matching coordinates and text, replacing the local `local-review:*` rows with the official GitHub comment IDs with zero duplicates.
 
 ---
 

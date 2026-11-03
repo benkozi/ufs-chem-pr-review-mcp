@@ -158,6 +158,22 @@ rate = 1.0_rk * temp * mw_scale
     assert data["inserted_count"] == 2
     assert data["recorded_comments"][0]["priority_label"] == "Blocker"
     assert data["recorded_comments"][1]["priority_label"] == "Moderate"
+    assert data["review_payload_path"] == str(
+        (tmp_path / "review_payload.json").resolve()
+    )
+    payload_json = json.loads(
+        (tmp_path / "review_payload.json").read_text(encoding="utf-8")
+    )
+    assert "event" not in payload_json
+    assert len(payload_json["comments"]) == 2
+    assert data["review_payload_path"] == str(
+        (tmp_path / "review_payload.json").resolve()
+    )
+    payload_json = json.loads(
+        (tmp_path / "review_payload.json").read_text(encoding="utf-8")
+    )
+    assert "event" not in payload_json
+    assert len(payload_json["comments"]) == 2
 
     # Search FTS5
     search_res = await mcp_app.call_tool(

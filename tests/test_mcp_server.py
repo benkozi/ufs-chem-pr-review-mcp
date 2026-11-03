@@ -94,7 +94,7 @@ async def test_evaluate_pr_tool(mcp_server_fixture: FastMCP) -> None:
     assert result is not None
     payload = json.loads(_tool_text(result))
     assert "comments" in payload
-    assert payload["event"] in ["COMMENT", "REQUEST_CHANGES"]
+    assert "event" not in payload
 
 
 @pytest.mark.asyncio
@@ -274,7 +274,7 @@ diff --git a/chem/second.F90 b/chem/second.F90
         },
     )
     payload = json.loads(_tool_text(res_json))
-    assert payload["event"] == "REQUEST_CHANGES"
+    assert "event" not in payload
     assert any(c["path"] == "chem/first.F90" for c in payload["comments"])
 
     # 3. output_format="markdown"
