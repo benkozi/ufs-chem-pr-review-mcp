@@ -284,6 +284,9 @@ Immediately after generating the review report, the agent automatically persists
    - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
    - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).
    - **Writes `<target_output_dir>/review_payload.json`**: Serializes a `GitHubReviewPayload` in the same directory as `review_file_path`.
+   - **Machine-Generated Provenance Notice**: The top-level `body` in `review_payload.json` MUST contain the provenance comment header:
+     `Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ <current hash of the mcp server>`
+     (where `<current hash of the mcp server>` is dynamically resolved from `git rev-parse HEAD` of the MCP repository).
    - **Pending-Only Safety Guarantee**: `GitHubReviewPayload` strictly omits (and forbids) the `"event"` field. Because GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` API sets a review to `PENDING` whenever `"event"` is omitted, `review_payload.json` can **only ever create a private `PENDING` draft review** on GitHub—it can never publicly submit `COMMENT`, `REQUEST_CHANGES`, or `APPROVE`.
 3. **Posting the Pending Review to GitHub via `gh api`**:
    - **Where `review_payload.json` is written**: Always written to `<parent_dir_of_review_md>/review_payload.json` (and returned in `RecordReviewCommentsResponse.review_payload_path`).
