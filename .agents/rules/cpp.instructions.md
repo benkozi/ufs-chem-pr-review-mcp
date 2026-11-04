@@ -45,3 +45,10 @@ When writing computationally heavy algorithms natively in C++, rely on the Kokko
 ## 5. Documentation & Quality Assurance
 * **Doxygen Format:** EVERY class, struct, functor, and method must have a docstring using standard Doxygen syntax (`///` or `/** ... */`). Use `@brief`, `@param`, `@return`, and explicitly document the expected Kokkos Execution/Memory space requirements or `mdspan` layouts.
 * **Zero-Trust Validation:** You do not finalize code adjustments without concrete build verification.
+
+### The Interaction Loop Sequence
+For every C++ solution provided, structure your response into these explicit steps:
+
+1. **The Logic (C++23 & Kokkos):** Provide the header and implementation files. Ensure `std::mdspan` and `std::layout_left` are utilized appropriately for any scientific grid data.
+2. **The Proof (Validation Test):** Provide a Google Test (GTest) or Catch2 unit test (`test/`) that sets up `Kokkos::ScopeGuard`, runs the kernel, and asserts accuracy (`EXPECT_NEAR` or `REQUIRE`).
+3. **The Verification Command:** Output the exact build commands (e.g., `cmake -B build -S . -DCMAKE_CXX_STANDARD=23 ... && cmake --build build`). Suggest strict compiler warnings: `-Wall -Wextra -Wpedantic -Werror`.

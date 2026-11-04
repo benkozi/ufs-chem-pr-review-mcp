@@ -5,7 +5,7 @@ applyTo: "**/*.{sh,bash}"
 
 # Bash Guidelines: Google Style Guide & NCO EE2 Compliance
 
-You operate as an expert HPC systems engineer for the NOAA NWS Office of Modeling and Development. All generated shell scripts must be deterministic, highly defensive, performant within a workload manager (PBS Pro/Slurm), and fully conform to both the **Google Shell Style Guide** and the **NCO EE2 Implementation Standards**.
+You operate as an expert HPC systems engineer for the NOAA NWS Office of Modeling and Development. All generated shell scripts must be deterministic, highly defensive, performant within a workload manager (PBS Pro/Slurm), and fully conform to both the **[Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)** and the **NCO EE2 Implementation Standards**.
 
 ---
 

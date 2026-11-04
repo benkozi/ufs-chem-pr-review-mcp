@@ -91,6 +91,10 @@ Call the MCP tool `evaluate_pr` on the `ufs-chem-pr-review` MCP server (via `cal
     - Uncover **Conditional Test Gating**: Search CMakeLists.txt and test harnesses for `if(EXISTS ...)` or environment gates that silently skip tests when fixture files (e.g., large NetCDF data) are absent from the CI environment.
     - Uncover **Orphaned / Standalone Tests**: Check whether modified shell test scripts (e.g. `tests/*.sh`) are actually registered as CTest tests or invoked by CI jobs.
     - Uncover **Manual-Only Hook Stages**: Check `.pre-commit-config.yaml` for `stages: [manual]` or hooks bypassed by default CI `pre-commit run`.
+    - **GitHub Actions 3-Pillar Security Audit**: When `.github/workflows/*` or custom actions are modified:
+      1. *Script Injection Prevention*: Check for direct string interpolation of untrusted contexts (`${{ github.event.* }}`, `${{ github.head_ref }}`) inside `run: |` blocks. Untrusted values must be passed via environment variables (e.g., `env: PR_TITLE: ${{ github.event.pull_request.title }}`).
+      2. *Third-Party Action Pinning*: Verify third-party actions (`uses: owner/repo@...`) are pinned to a full 40-character commit SHA with a version tag comment (e.g. `uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2`).
+      3. *Least-Privilege Permissions*: Verify top-level or job-level `permissions:` are explicitly declared (e.g., `permissions: contents: read`) rather than inheriting broad default write permissions.
 
 ### Phase 2b: Local Scratch Space & Dependent Application Checkout (Optional / In-Depth Analysis)
 For in-depth analysis beyond the PR diff hunks (e.g., verifying whole-file context, checking all call sites across the codebase, auditing cross-component coupling interfaces, or testing patches), the PR can be checked out locally in a scratch space.
@@ -150,6 +154,10 @@ Critically evaluate all comments returned in `existing_pr_comments`:
      - *Physics & Units*: Does the formula actually require molecular weight scaling, or is the variable already converted?
      - *Algorithmic / Language*: Is the suggested array slice syntax safe, or does the loop have recurrence data dependencies ($x(i) = x(i-1) + a(i)$)?
      - *OMD & EE2 Standards*: Does the suggestion violate Flux Fortran (pure functions), Forge C++ (RAII), or EE2 path standards?
+     - *EE2 Portability Routing (`[portable]` vs `[WCOSS]`)*:
+       - Classify target repository context: Research and community repositories (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`) require universal **`[portable]`** rules (`FATAL ERROR:` / `WARNING:` prefixes, no backgrounding `&`, zero hardcoded host paths, fail-fast input validation, ASCII source).
+       - Operational **`[WCOSS]`** rules (`$SENDDBN`, `prep_step`, `dbn_alert`, NCO J-job `JAAAAA` naming, production directory trees) apply *only* to operational delivery packages destined for NCO production.
+       - If a peer reviewer demands `[WCOSS]` operational scaffolding on a research or community library PR, classify the comment as **`[INVALID / FALSE POSITIVE]`** with the rationale that the target repo is a portable scientific component, not an NCO operational bundle.
      - *Ponytail*: Is the reviewer proposing an over-engineered abstraction?
    - Assign validity:
      - `[VALID]`: Accurately identifies a genuine defect or standards violation.
@@ -172,11 +180,15 @@ Review large PRs in logical chunks (**Security/Safety â†’ Correctness/Physics â†
 1. **Ponytail Audit**:
    - Identify dead code, speculative complexity (YAGNI), unnecessary helper functions with single callers, and reinvented standard library routines.
    - Calculate net lines removable: $L_{removable} = L_{dead} + L_{speculative} + L_{shrink\_delta}$.
-2. **NOAA OMD Coding Standards**:
-   - Fortran: Explicit kind suffixes (`_rk` or `_r8`), OpenMP `default(none)`, pure functions for physics kernels, proper `&` line continuations.
-   - C++: Strict RAII, zero raw owning pointers, Fortran memory layout ordering.
-   - Bash: `set -euo pipefail`, Google style, no backgrounding (`&`), standard exit codes.
+2. **NOAA OMD Coding Standards & OMD-Skills Guidelines**:
+   - Fortran: Explicit kind suffixes (`_rk` or `_r8`), OpenMP `default(none)`, pure functions for physics kernels, no exact floating-point equality comparisons (`==`, `/=`), proper `&` line continuations, test suite sanitizer flags (`-fsanitize=address,undefined`).
+   - C++: Strict RAII, zero raw owning pointers, Fortran memory layout ordering, zero unsafe C buffer or shell calls (`strcpy`, `strcat`, `sprintf`, `system`, `popen`), ASan/UBSan sanitizers.
+   - Bash: `#!/bin/bash`, `set -euo pipefail`, Google style, no backgrounding (`&`), standard exit codes, ShellCheck hygiene.
    - Python: Aero protocol, lazy evaluation, strict typing.
+   - Makefiles: Explicit targets, dependency tracking, portable POSIX constructs, clean targets.
+   - GitHub Actions: 3-pillar audit (untrusted script injection prevention, 40-char SHA pinning with version comments, least-privilege permissions).
+   - RDHPCS & HPC Schedulers: Slurm (`#SBATCH`) / PBS (`#PBS`) directive consistency, module purge/load order, scratch filesystem paths (`$SCRATCH`, `$WORKDIR`).
+   - EE2 Portability Routing: Universal `[portable]` compliance (`FATAL ERROR:` / `WARNING:` prefixes, portable exit codes, zero hardcoded host paths); isolate `[WCOSS]` production rules to operational delivery repositories.
 3. **UFS-Chem Domain & Atmospheric Physics**:
    - Check molar mass conversions ($M_{spec} / M_{air}$).
    - Verify mass conservation in reaction kinetics.
@@ -191,7 +203,7 @@ Review large PRs in logical chunks (**Security/Safety â†’ Correctness/Physics â†
    - **Documentation & Breaking Changes**: Public APIs, YAML/namelist config keys, and breaking behavior changes documented accurately; recognize well-written code and strong design choices in the summary.
 5. **Historical Precedents & Guidelines (MCP Server)**:
    - For deeper review precedent search, call `search_review_history` on MCP server `ufs-chem-pr-review`.
-   - For domain guideline deep dives, read resource `ufs-chem://guidelines/{category}` (`fortran`, `cpp`, `chemistry_physics`, `ee2`, `ponytail`).
+   - For domain guideline deep dives, read resource `ufs-chem://guidelines/{category}` (`fortran`, `cpp`, `bash`, `python`, `makefile`, `code-review-generic`, `chemistry_physics`, `ee2`, `ee2-review-gate`, `github-actions`, `rdhpcs-hpc`, `hpc_libraries`, `ponytail`).
 6. **External Web & Documentation Checks**:
    - Consult CCPP physics interfaces, ESMF API docs, or third-party libraries via `search_web` if unfamiliar constructs appear.
 7. **Scratch Space & Dependent Application Cross-Analysis**:

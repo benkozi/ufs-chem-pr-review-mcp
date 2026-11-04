@@ -39,6 +39,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     DomainFinding,
+    GuidelineResourceInfo,
     PonytailFinding,
     ReviewContextResponse,
 )
@@ -677,53 +678,92 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
     def list_guidelines_resource() -> str:
         """JSON listing of all available guideline categories and their descriptions."""
         categories = [
-            {
-                "category": "fortran",
-                "uri": "ufs-chem://guidelines/fortran",
-                "description": "OMD Fortran 2018+ standards (Flux Protocol): explicit typing, OpenMP default(none), pure compute kernels.",
-            },
-            {
-                "category": "cpp",
-                "uri": "ufs-chem://guidelines/cpp",
-                "description": "OMD C++23 standards (Forge Protocol): strict RAII, std::mdspan Fortran layout, Kokkos abstractions.",
-            },
-            {
-                "category": "bash",
-                "uri": "ufs-chem://guidelines/bash",
-                "description": "OMD Bash standards: set -euo pipefail, Google style, EE2 J-Job hierarchy, no background processes.",
-            },
-            {
-                "category": "python",
-                "uri": "ufs-chem://guidelines/python",
-                "description": "OMD Python standards (Aero Protocol): Pangeo stack, lazy Dask execution, typed APIs.",
-            },
-            {
-                "category": "ee2",
-                "uri": "ufs-chem://guidelines/ee2",
-                "description": "NCO HPC Environment Equivalence (EE2): standard operational paths ($DATA, $COMROOT), standard fatal error prefixes.",
-            },
-            {
-                "category": "hpc-libraries",
-                "uri": "ufs-chem://guidelines/hpc-libraries",
-                "description": "HPC scientific libraries: ESMF return code checking, ParallelIO (PIO), NetCDF-4 collective I/O, Zarr cloud data.",
-            },
-            {
-                "category": "chemistry_physics",
-                "uri": "ufs-chem://guidelines/chemistry_physics",
-                "description": "Chemistry & Physics guidelines: molecular weights, molar-to-mass mixing ratios, mass conservation.",
-            },
-            {
-                "category": "esmf_nuopc",
-                "uri": "ufs-chem://guidelines/esmf_nuopc",
-                "description": "ESMF & NUOPC Cap guidelines: ESMF_StateGet error checking, field realization, clock coordination.",
-            },
-            {
-                "category": "ponytail",
-                "uri": "ufs-chem://guidelines/ponytail",
-                "description": "Ponytail over-engineering guidelines: dead code elimination, native constructs, YAGNI, shrinking code footprint.",
-            },
+            GuidelineResourceInfo(
+                category="fortran",
+                uri="ufs-chem://guidelines/fortran",
+                description="OMD Fortran 2018+ standards (Flux Protocol): explicit typing, OpenMP default(none), pure compute kernels, fpm test verification.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="cpp",
+                uri="ufs-chem://guidelines/cpp",
+                description="OMD C++23 standards (Forge Protocol): strict RAII, std::mdspan Fortran layout, Kokkos abstractions, GTest verification.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="bash",
+                uri="ufs-chem://guidelines/bash",
+                description="OMD Bash standards: set -euo pipefail, Google style, EE2 J-Job hierarchy, no background processes.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="python",
+                uri="ufs-chem://guidelines/python",
+                description="OMD Python standards (Aero Protocol): Pangeo stack, lazy Dask execution, typed APIs, dual-backend NumPy/Dask verification.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="ee2",
+                uri="ufs-chem://guidelines/ee2",
+                description="NCO HPC Environment Equivalence (EE2): standard operational paths ($DATA, $COMROOT), standard fatal error prefixes.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="hpc-libraries",
+                uri="ufs-chem://guidelines/hpc-libraries",
+                description="HPC scientific libraries: ESMF return code checking, ParallelIO (PIO), NetCDF-4 collective I/O, Zarr cloud data.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="code-review-generic",
+                uri="ufs-chem://guidelines/code-review-generic",
+                description="OMD comprehensive scientific and HPC code review instructions covering C, C++, Fortran, Python, and Bash.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="makefile",
+                uri="ufs-chem://guidelines/makefile",
+                description="OMD GNU Make guidelines: target hygiene, order-only prerequisites, auto-dependencies, and no recursive make.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="ee2-review-gate",
+                uri="ufs-chem://guidelines/ee2-review-gate",
+                description="NCO EE2 20-item review gate and portability routing ([portable] vs [WCOSS]) for operational vs research code.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="github-actions",
+                uri="ufs-chem://guidelines/github-actions",
+                description="GitHub Actions 3-pillar security and efficiency guidelines: script injection prevention, SHA pinning, least-privilege permissions, and caching.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="rdhpcs-hpc",
+                uri="ufs-chem://guidelines/rdhpcs-hpc",
+                description="NOAA RDHPCS HPC workload manager (Slurm/PBS) guidelines: resource allocation consistency, QOS tiers, /home execution restrictions, and module purging.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="chemistry_physics",
+                uri="ufs-chem://guidelines/chemistry_physics",
+                description="Chemistry & Physics guidelines: molecular weights, molar-to-mass mixing ratios, mass conservation.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="esmf_nuopc",
+                uri="ufs-chem://guidelines/esmf_nuopc",
+                description="ESMF & NUOPC Cap guidelines: ESMF_StateGet error checking, field realization, clock coordination.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="ponytail",
+                uri="ufs-chem://guidelines/ponytail",
+                description="Ponytail over-engineering guidelines: dead code elimination, native constructs, YAGNI, shrinking code footprint.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
         ]
-        return json.dumps(categories, indent=2)
+        return json.dumps([c.model_dump(mode="json") for c in categories], indent=2)
 
     @mcp.resource("ufs-chem://guidelines/{category}")
     def get_guidelines_resource(category: str) -> str:
@@ -739,6 +779,22 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             "ee2": "ee2-standards.md",
             "hpc-libraries": "hpc-libraries.md",
             "hpc_libraries": "hpc-libraries.md",
+            "code-review-generic": "code-review-generic.instructions.md",
+            "code_review_generic": "code-review-generic.instructions.md",
+            "code-review": "code-review-generic.instructions.md",
+            "makefile": "makefile.instructions.md",
+            "make": "makefile.instructions.md",
+            "ee2-review-gate": "ee2-review-gate.md",
+            "ee2_review_gate": "ee2-review-gate.md",
+            "ee2-gate": "ee2-review-gate.md",
+            "github-actions": "github-actions.md",
+            "github_actions": "github-actions.md",
+            "gha": "github-actions.md",
+            "rdhpcs-hpc": "rdhpcs-hpc.md",
+            "rdhpcs_hpc": "rdhpcs-hpc.md",
+            "hpc": "rdhpcs-hpc.md",
+            "slurm": "rdhpcs-hpc.md",
+            "pbs": "rdhpcs-hpc.md",
         }
         normalized = category.lower().strip()
         if normalized in file_map:
