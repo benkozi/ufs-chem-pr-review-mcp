@@ -2,6 +2,7 @@
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -645,6 +646,31 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         written_payload_str: str | None = None
         if resolved_payload_path is not None:
             resolved_payload_path.parent.mkdir(parents=True, exist_ok=True)
+            if diff_text is None and target_repo and target_pr:
+                try:
+                    token = resolve_github_token(settings.github_token)
+                    client = GitHubClient(token=token)
+                    try:
+                        diff_text = client.get_pr_diff(target_repo, target_pr)
+                    finally:
+                        client.close()
+                except Exception as exc:
+                    logger.warning(
+                        "Could not auto-fetch PR diff for hunk validation: %s", exc
+                    )
+                    try:
+                        gh_res = subprocess.run(
+                            ["gh", "pr", "diff", str(target_pr), "--repo", target_repo],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                            timeout=10,
+                        )
+                        if gh_res.returncode == 0 and gh_res.stdout:
+                            diff_text = gh_res.stdout
+                    except Exception:
+                        pass
+
             pending_payload = build_pending_review_payload(
                 comments=parsed_comments,
                 diff_text=diff_text,

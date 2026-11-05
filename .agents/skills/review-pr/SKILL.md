@@ -276,10 +276,11 @@ Immediately after generating the review report, the agent automatically persists
      {
        "pr_url": "<pr_url>",
        "review_file_path": "<target_output_file_path>",
-       "commit_id": "<head_sha_40_char>"
+       "commit_id": "<head_sha_40_char>",
+       "diff_text": "<diff_text_from_phase_2>"
      }
      ```
-     *(Optionally pass `"diff_text"` or `"payload_output_path"` if you want to filter out-of-hunk comments against a specific diff string or write `review_payload.json` to a custom path.)*
+     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`.)*
 2. **Under the Hood Execution**:
    - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
    - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).

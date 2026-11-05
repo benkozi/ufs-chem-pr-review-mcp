@@ -151,6 +151,17 @@ rate = 1.0_rk * temp * mw_scale
             "repo": "ufs-community/CATChem",
             "pr_number": 123,
             "review_file_path": str(md_path),
+            "diff_text": """diff --git a/chem/rates.F90 b/chem/rates.F90
+--- a/chem/rates.F90
++++ b/chem/rates.F90
+@@ -40,5 +40,5 @@
+ rate = 1.0 * temp
+diff --git a/chem/utils.F90 b/chem/utils.F90
+--- a/chem/utils.F90
++++ b/chem/utils.F90
+@@ -10,10 +10,10 @@
+ end subroutine
+ """,
         },
     )
     data = json.loads(_tool_text(res))
@@ -183,6 +194,76 @@ rate = 1.0_rk * temp * mw_scale
     search_data = json.loads(_tool_text(search_res))
     assert len(search_data) == 1
     assert search_data[0]["line"] == 42
+
+
+@pytest.mark.asyncio
+async def test_record_review_comments_filters_out_of_diff_hunks(
+    mcp_app: FastMCP, tmp_path: Path
+) -> None:
+    md_path = tmp_path / "review-diff-filter.md"
+    md_path.write_text(
+        """# Pull Request Review: [ufs-community/CATChem#999]
+
+## 5. Detailed Findings & Machine-Applicable Suggestions
+
+### [P1] In-Hunk Finding
+- **Location**: `src/core.cpp:15`
+- **Recommended Post Location**: Inline on `src/core.cpp` (line `15`)
+- **Tag**: `[correctness]`
+
+**Correctness: In-hunk issue**
+
+Testing in-hunk.
+
+**Suggested fix:** fix.
+
+**Test:** test.
+
+### [P2] Out-of-Hunk Finding
+- **Location**: `src/core.cpp:250`
+- **Recommended Post Location**: Inline on `src/core.cpp` (line `250`)
+- **Tag**: `[robustness]`
+
+**Robustness: Out-of-hunk issue**
+
+Testing out-of-hunk.
+
+**Suggested fix:** fix.
+
+**Test:** test.
+""",
+        encoding="utf-8",
+    )
+
+    diff_text = """diff --git a/src/core.cpp b/src/core.cpp
+--- a/src/core.cpp
++++ b/src/core.cpp
+@@ -10,10 +10,10 @@
+ void run() {
++    int x = 1;
+ }
+"""
+
+    res = await mcp_app.call_tool(
+        "record_review_comments",
+        {
+            "repo": "ufs-community/CATChem",
+            "pr_number": 999,
+            "review_file_path": str(md_path),
+            "diff_text": diff_text,
+        },
+    )
+    data = json.loads(_tool_text(res))
+    assert data["total_received"] == 2
+    payload_json = json.loads(
+        (tmp_path / "review_payload.json").read_text(encoding="utf-8")
+    )
+    # Only the in-hunk finding is kept as an inline comment
+    assert len(payload_json["comments"]) == 1
+    assert payload_json["comments"][0]["line"] == 15
+    # The out-of-hunk finding is safely placed in top-level body notes
+    assert "### File-Level & Out-of-Diff Findings" in payload_json["body"]
+    assert "`src/core.cpp:250`" in payload_json["body"]
 
 
 @pytest.mark.asyncio
