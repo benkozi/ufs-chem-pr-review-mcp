@@ -10,6 +10,7 @@ import respx
 from mcp.server.fastmcp import FastMCP
 
 from ufs_chem_pr_review_mcp.db.repository import ReviewDatabase
+from ufs_chem_pr_review_mcp.models.mcp_tools import GuidelineResourceInfo
 from ufs_chem_pr_review_mcp.server import create_mcp_server
 from ufs_chem_pr_review_mcp.server import main as server_main
 
@@ -94,7 +95,7 @@ async def test_evaluate_pr_tool(mcp_server_fixture: FastMCP) -> None:
     assert result is not None
     payload = json.loads(_tool_text(result))
     assert "comments" in payload
-    assert payload["event"] in ["COMMENT", "REQUEST_CHANGES"]
+    assert "event" not in payload
 
 
 @pytest.mark.asyncio
@@ -198,22 +199,63 @@ async def test_resources_and_prompts(mcp_server_fixture: FastMCP) -> None:
     assert all_guidelines is not None
     guidelines_list = json.loads(_res_text(all_guidelines))
     assert isinstance(guidelines_list, list)
-    categories = [g["category"] for g in guidelines_list]
+    parsed_infos = [GuidelineResourceInfo.model_validate(g) for g in guidelines_list]
+    assert len(parsed_infos) >= 14
+    categories = [g.category for g in parsed_infos]
     assert "fortran" in categories
     assert "cpp" in categories
     assert "ee2" in categories
+    assert "code-review-generic" in categories
+    assert "makefile" in categories
+    assert "ee2-review-gate" in categories
+    assert "github-actions" in categories
+    assert "rdhpcs-hpc" in categories
+    for info in parsed_infos:
+        assert info.upstream_source == "NOAA-EMC/omd-skills"
+        assert info.uri.startswith("ufs-chem://guidelines/")
 
     # Test file-backed guidelines resources
     fortran_guide = await mcp_server_fixture.read_resource(
         "ufs-chem://guidelines/fortran"
     )
     assert "Flux" in _res_text(fortran_guide)
+    assert "Interaction Loop Sequence" in _res_text(fortran_guide)
 
     cpp_guide = await mcp_server_fixture.read_resource("ufs-chem://guidelines/cpp")
     assert "Forge" in _res_text(cpp_guide)
+    assert "Interaction Loop Sequence" in _res_text(cpp_guide)
 
     ee2_guide = await mcp_server_fixture.read_resource("ufs-chem://guidelines/ee2")
     assert "Environment Equivalence" in _res_text(ee2_guide)
+
+    # Test new omd-skills file-backed guidelines resources
+    code_review_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/code-review-generic"
+    )
+    assert "Generic Code Review Instructions" in _res_text(code_review_guide)
+
+    make_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/makefile"
+    )
+    assert "Makefile Development Instructions" in _res_text(make_guide)
+
+    ee2_gate_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/ee2-review-gate"
+    )
+    assert "20-Item EE2 Review Gate" in _res_text(ee2_gate_guide)
+    assert "Portability Routing" in _res_text(ee2_gate_guide)
+
+    gha_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/github-actions"
+    )
+    assert "GitHub Actions CI/CD Review Guidelines" in _res_text(gha_guide)
+    assert "Script Injection" in _res_text(gha_guide)
+
+    hpc_guide = await mcp_server_fixture.read_resource(
+        "ufs-chem://guidelines/rdhpcs-hpc"
+    )
+    assert "NOAA RDHPCS & HPC Workload Manager Guidelines" in _res_text(hpc_guide)
+    assert "Directive Consistency" in _res_text(hpc_guide)
 
     unknown_guide = await mcp_server_fixture.read_resource(
         "ufs-chem://guidelines/nonexistent"
@@ -274,7 +316,7 @@ diff --git a/chem/second.F90 b/chem/second.F90
         },
     )
     payload = json.loads(_tool_text(res_json))
-    assert payload["event"] == "REQUEST_CHANGES"
+    assert "event" not in payload
     assert any(c["path"] == "chem/first.F90" for c in payload["comments"])
 
     # 3. output_format="markdown"

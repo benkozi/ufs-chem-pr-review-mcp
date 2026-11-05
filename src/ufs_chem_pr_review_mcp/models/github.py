@@ -5,8 +5,6 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ufs_chem_pr_review_mcp.models.common import ReviewEvent
-
 _PR_URL_PATTERN = re.compile(
     r"^(?:https?://github\.com/)?([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)(?:/pull/|#)(\d+)(?:/.*)?$"
 )
@@ -133,9 +131,19 @@ class GitHubInlineComment(BaseModel):
     side: str = Field(
         default="RIGHT", description="The side of the diff to comment on: LEFT or RIGHT"
     )
+    start_line: int | None = Field(
+        default=None,
+        ge=1,
+        description="First line in the diff for a multi-line comment (must be < line)",
+    )
+    start_side: str | None = Field(
+        default=None,
+        description="The side of the diff for start_line: LEFT or RIGHT",
+    )
     body: str = Field(description="The markdown body of the comment")
     suggested_change: str | None = Field(
         default=None,
+        exclude=True,
         description="Exact code suggestion rendered as ```suggestion\\n{suggested_change}\\n``` for 1-click GitHub PR commit",
     )
 
@@ -144,20 +152,35 @@ class GitHubInlineComment(BaseModel):
         if not self.suggested_change:
             return self.body
         suggestion_block = f"```suggestion\n{self.suggested_change.rstrip()}\n```"
+        if suggestion_block in self.body:
+            return self.body.strip()
         if self.body.strip():
             return f"{self.body.strip()}\n\n{suggestion_block}"
         return suggestion_block
 
 
 class GitHubReviewPayload(BaseModel):
-    """Payload compatible with GitHub REST API: POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews."""
+    """Pending-only payload for GitHub REST API: POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews.
+
+    By omitting the ``event`` field (and forbidding extra fields), this payload is
+    structurally guaranteed to only ever create a PENDING draft review on GitHub.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    event: ReviewEvent = Field(
-        description="The review action: COMMENT, REQUEST_CHANGES, or APPROVE"
+    commit_id: str | None = Field(
+        default=None,
+        description="Optional SHA of the commit that needs a review",
     )
     body: str = Field(description="The overarching critical review summary in Markdown")
     comments: list[GitHubInlineComment] = Field(
         default_factory=list, description="List of inline comments to post"
     )
+
+    def to_gh_api_json(self) -> str:
+        """Serialize as a pending-only GitHub REST API review JSON payload."""
+        rendered_comments = [
+            c.model_copy(update={"body": c.rendered_body()}) for c in self.comments
+        ]
+        normalized = self.model_copy(update={"comments": rendered_comments})
+        return normalized.model_dump_json(indent=2, exclude_none=True)

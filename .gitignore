@@ -222,5 +222,7 @@ __marimo__/
 # Scratch space
 scratch/
 
-# Scratch space
-scratch/
+# omd-skills installer state
+.ompd/
+
+.DS_Store
