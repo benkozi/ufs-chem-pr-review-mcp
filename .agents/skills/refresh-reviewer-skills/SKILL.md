@@ -156,11 +156,12 @@ When evaluating upstream changes:
      - `.agents/rules/<file>.md` (if present)
    - **Automated Rule Engines**: If a new deterministic check is warranted, update `src/ufs_chem_pr_review_mcp/rules/ufs_chem.py` or `src/ufs_chem_pr_review_mcp/rules/ponytail.py`.
 
-### Step 4: Verify Parser & Test Suite Compatibility
-Whenever the `[P*]` report schema or `Review Comment Template` in `.agents/skills/review-pr/SKILL.md` is updated, verify that `parse_review_markdown_findings` in [`src/ufs_chem_pr_review_mcp/models/local_review.py`](file:///Users/bkoziol/sandbox/git-benkozi/ufs-chem-pr-review-mcp/src/ufs_chem_pr_review_mcp/models/local_review.py) cleanly parses the format and that all tests pass:
+### Step 4: Verify Pre-Commit, Parser & Test Suite Compatibility
+Whenever the `[P*]` report schema, `Review Comment Template`, or any guideline/rule file is updated, run pre-commit across all files and verify that `parse_review_markdown_findings` in [`src/ufs_chem_pr_review_mcp/models/local_review.py`](file:///Users/bkoziol/sandbox/git-benkozi/ufs-chem-pr-review-mcp/src/ufs_chem_pr_review_mcp/models/local_review.py) cleanly parses the format with 100% test coverage:
 
 ```bash
-uv run pytest
+uv run pre-commit run --all-files
+uv run pytest --cov=ufs_chem_pr_review_mcp --cov-report=term-missing --cov-fail-under=100
 ```
 
 ### Step 5: Clean Up Temporary Scratch Files & Report Summary
@@ -168,4 +169,4 @@ uv run pytest
 2. Present a concise summary to the user listing:
    - Upstream and local sources checked.
    - Specific conventions or rules added/updated in `.agents/skills/review-pr/SKILL.md` and `resources/guidelines/`.
-   - Confirmation that `uv run pytest` passed.
+   - Confirmation that `uv run pre-commit run --all-files` and `uv run pytest` passed.

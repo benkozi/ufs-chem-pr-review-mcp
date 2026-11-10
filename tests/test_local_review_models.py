@@ -13,6 +13,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     RecordReviewCommentsResponse,
     build_pending_review_payload,
     generate_synthetic_node_id,
+    get_mcp_server_commit_hash,
     parse_diff_right_ranges,
     parse_review_markdown_findings,
 )
@@ -346,3 +347,25 @@ diff --git a/src/other.cpp b/src/other.cpp
     assert payload_with_diff.comments[1].start_line is None
     assert payload_with_diff.comments[1].line == 15
     assert "`src/mod.cpp:100-105`" in payload_with_diff.body
+
+
+def test_get_mcp_server_commit_hash_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def mock_run_nonzero(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["git"], returncode=1, stdout="", stderr="err"
+        )
+
+    monkeypatch.setattr(subprocess, "run", mock_run_nonzero)
+    assert get_mcp_server_commit_hash() == "unknown"
+
+    def mock_run_error(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise OSError("git not found")
+
+    monkeypatch.setattr(subprocess, "run", mock_run_error)
+    assert get_mcp_server_commit_hash() == "unknown"

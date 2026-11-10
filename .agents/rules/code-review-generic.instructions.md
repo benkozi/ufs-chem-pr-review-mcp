@@ -163,6 +163,7 @@ end module discounts
 def calc(x, y):
     return y * 0.15 if x > 100 else y * 0.10
 
+
 # ✅ GOOD: named constants, type hints, keyword-only where order is ambiguous
 PREMIUM_THRESHOLD_USD = 100.0
 PREMIUM_DISCOUNT_RATE = 0.15
@@ -196,6 +197,7 @@ def process_user(user_id):
         user.process()
     except:
         pass
+
 
 # ✅ GOOD: Explicit error handling
 def process_user(user_id):
@@ -709,8 +711,11 @@ def load_profiles(paths, results=[]):
             print("failed")
     return results
 
+
 # ✅ GOOD: typed, safe loader, context manager, explicit errors
-def load_profiles(paths: Sequence[Path], *, dtype: np.dtype = np.float64) -> list[np.ndarray]:
+def load_profiles(
+    paths: Sequence[Path], *, dtype: np.dtype = np.float64
+) -> list[np.ndarray]:
     profiles: list[np.ndarray] = []
     for path in paths:
         try:
@@ -731,6 +736,7 @@ def scale(arr, factor):
         for j in range(arr.shape[1]):
             arr[i, j] = arr[i, j] * factor
     return arr
+
 
 # ✅ GOOD: vectorized, no in-place surprise on a caller's view
 def scale(arr: np.ndarray, factor: float) -> np.ndarray:

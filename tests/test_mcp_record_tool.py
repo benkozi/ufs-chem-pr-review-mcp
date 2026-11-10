@@ -289,3 +289,80 @@ async def test_record_review_comments_with_raw_markdown_text(
     assert data["inserted_count"] == 1
     assert data["recorded_comments"][0]["priority_label"] == "Major"
     assert data["recorded_comments"][0]["criticality"] == 4
+
+
+@pytest.mark.asyncio
+async def test_record_review_comments_auto_fetches_diff(
+    mcp_app: FastMCP, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    from ufs_chem_pr_review_mcp.ingest.client import GitHubClient
+
+    md_path = tmp_path / "review-auto-diff.md"
+    md_path.write_text(
+        """### [P1] Auto Diff Test
+- **Location**: `src/core.cpp:12`
+- **Problem**: Test problem.
+""",
+        encoding="utf-8",
+    )
+
+    sample_diff = """diff --git a/src/core.cpp b/src/core.cpp
+--- a/src/core.cpp
++++ b/src/core.cpp
+@@ -10,5 +10,5 @@
+ int a = 1;
+"""
+
+    # 1. GitHubClient.get_pr_diff succeeds
+    monkeypatch.setattr(GitHubClient, "get_pr_diff", lambda self, repo, pr: sample_diff)
+    res1 = await mcp_app.call_tool(
+        "record_review_comments",
+        {
+            "repo": "ufs-community/CATChem",
+            "pr_number": 101,
+            "review_file_path": str(md_path),
+        },
+    )
+    data1 = json.loads(_tool_text(res1))
+    assert data1["review_payload_path"] is not None
+
+    # 2. GitHubClient.get_pr_diff fails, fallback to gh pr diff succeeds
+    def raise_client_err(self: Any, repo: str, pr: int) -> str:
+        raise RuntimeError("API error")
+
+    monkeypatch.setattr(GitHubClient, "get_pr_diff", raise_client_err)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(
+            args=["gh"], returncode=0, stdout=sample_diff, stderr=""
+        ),
+    )
+    res2 = await mcp_app.call_tool(
+        "record_review_comments",
+        {
+            "repo": "ufs-community/CATChem",
+            "pr_number": 102,
+            "review_file_path": str(md_path),
+        },
+    )
+    data2 = json.loads(_tool_text(res2))
+    assert data2["review_payload_path"] is not None
+
+    # 3. Both GitHubClient.get_pr_diff and subprocess.run fail
+    def raise_subproc_err(*a: Any, **kw: Any) -> Any:
+        raise OSError("gh not found")
+
+    monkeypatch.setattr(subprocess, "run", raise_subproc_err)
+    res3 = await mcp_app.call_tool(
+        "record_review_comments",
+        {
+            "repo": "ufs-community/CATChem",
+            "pr_number": 103,
+            "review_file_path": str(md_path),
+        },
+    )
+    data3 = json.loads(_tool_text(res3))
+    assert data3["review_payload_path"] is not None
