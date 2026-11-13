@@ -1,6 +1,7 @@
 """Pydantic schemas and parsers for recording local review comments and managing reconciliation."""
 
 import hashlib
+import html
 import re
 import subprocess
 from enum import Enum
@@ -197,6 +198,10 @@ class RecordReviewCommentsResponse(BaseModel):
         default=None,
         description="Absolute path to the generated pending-only review_payload.json file for gh api",
     )
+    review_body_path: str | None = Field(
+        default=None,
+        description="Absolute path to the generated Markdown file containing the review body for copy-paste submission",
+    )
     recorded_comments: list[RecordedCommentSummary] = Field(
         default_factory=list,
         description="List of recorded comments and their synthetic node IDs",
@@ -352,6 +357,26 @@ def _range_in_hunks(
     return any(h_start <= start_line and end_line <= h_end for h_start, h_end in hunks)
 
 
+def _format_out_of_diff_note(loc_label: str, rendered_text: str) -> str:
+    """Format an out-of-diff finding with a collapsible details block under its [P*] heading."""
+    parts = rendered_text.split("\n\n", 1)
+    first_line = parts[0].strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    if re.match(r"^\*\*\[P\d+\b", first_line) and rest:
+        heading = html.escape(first_line.strip("* ").strip())
+        heading_html = re.sub(r"`([^`]+)`", r"<code>\1</code>", heading)
+        loc_html = f"<code>{html.escape(loc_label)}</code>"
+        return (
+            "<details>\n"
+            f"<summary><b>{heading_html}</b> ({loc_html})</summary>\n\n"
+            f"**Location:** `{loc_label}`\n\n"
+            f"{rest}\n\n"
+            "</details>"
+        )
+    prefix = f"#### `{loc_label}`" if loc_label != "General" else "#### General"
+    return f"{prefix}\n\n{rendered_text}"
+
+
 def get_mcp_server_commit_hash() -> str:
     """Return the git commit hash of the ufs-chem-pr-review-mcp repository."""
     try:
@@ -399,8 +424,8 @@ def build_pending_review_payload(
         rendered_text = temp_comment.rendered_body()
 
         if c.line is None or c.path == "unknown":
-            loc_label = f"`{c.path}`" if c.path != "unknown" else "General"
-            out_of_diff_notes.append(f"#### {loc_label}\n\n{rendered_text}")
+            loc_label = c.path if c.path != "unknown" else "General"
+            out_of_diff_notes.append(_format_out_of_diff_note(loc_label, rendered_text))
             continue
 
         s_line = (
@@ -436,11 +461,13 @@ def build_pending_review_payload(
                 )
             else:
                 loc_str = (
-                    f"`{c.path}:{s_line}-{c.line}`"
+                    f"{c.path}:{s_line}-{c.line}"
                     if s_line is not None
-                    else f"`{c.path}:{c.line}`"
+                    else f"{c.path}:{c.line}"
                 )
-                out_of_diff_notes.append(f"#### {loc_str}\n\n{rendered_text}")
+                out_of_diff_notes.append(
+                    _format_out_of_diff_note(loc_str, rendered_text)
+                )
         else:
             inline_comments.append(
                 GitHubInlineComment(
@@ -453,8 +480,13 @@ def build_pending_review_payload(
                 )
             )
 
+    commit_ref = (
+        f"[{mcp_commit[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{mcp_commit})"
+        if mcp_commit != "unknown"
+        else "unknown"
+    )
     summary_parts = [
-        f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ {mcp_commit}\n\n"
+        f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ {commit_ref}\n\n"
         f"Pending code review ({len(inline_comments)} inline diff comment(s), "
         f"{len(out_of_diff_notes)} file/out-of-diff finding(s))."
     ]

@@ -172,7 +172,10 @@ class GitHubReviewPayload(BaseModel):
         default=None,
         description="Optional SHA of the commit that needs a review",
     )
-    body: str = Field(description="The overarching critical review summary in Markdown")
+    body: str | None = Field(
+        default=None,
+        description="Optional overarching critical review summary in Markdown",
+    )
     comments: list[GitHubInlineComment] = Field(
         default_factory=list, description="List of inline comments to post"
     )

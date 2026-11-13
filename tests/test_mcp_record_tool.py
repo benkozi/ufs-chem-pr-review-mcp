@@ -261,9 +261,19 @@ Testing out-of-hunk.
     # Only the in-hunk finding is kept as an inline comment
     assert len(payload_json["comments"]) == 1
     assert payload_json["comments"][0]["line"] == 15
-    # The out-of-hunk finding is safely placed in top-level body notes
-    assert "### File-Level & Out-of-Diff Findings" in payload_json["body"]
-    assert "`src/core.cpp:250`" in payload_json["body"]
+    # The top-level body is written to review_payload_body.md for copy-paste submission
+    assert "body" not in payload_json
+    body_path = tmp_path / "review_payload_body.md"
+    assert data["review_body_path"] == str(body_path.resolve())
+    body_md = body_path.read_text(encoding="utf-8")
+    assert "### File-Level & Out-of-Diff Findings" in body_md
+    assert "<details>" in body_md
+    assert (
+        "<summary><b>[P2 - Moderate] Out-of-Hunk Finding</b> (<code>src/core.cpp:250</code>)</summary>"
+        in body_md
+    )
+    assert "</details>" in body_md
+    assert "`src/core.cpp:250`" in body_md
 
 
 @pytest.mark.asyncio

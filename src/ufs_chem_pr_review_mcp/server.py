@@ -644,6 +644,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         )
 
         written_payload_str: str | None = None
+        written_body_str: str | None = None
         if resolved_payload_path is not None:
             resolved_payload_path.parent.mkdir(parents=True, exist_ok=True)
             if diff_text is None and target_repo and target_pr:
@@ -676,8 +677,17 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 diff_text=diff_text,
                 commit_id=commit_id,
             )
+            resolved_body_path = resolved_payload_path.with_name(
+                f"{resolved_payload_path.stem}_body.md"
+            )
+            if pending_payload.body:
+                resolved_body_path.write_text(
+                    pending_payload.body.rstrip() + "\n", encoding="utf-8"
+                )
+                written_body_str = str(resolved_body_path.resolve())
+            json_only_payload = pending_payload.model_copy(update={"body": None})
             resolved_payload_path.write_text(
-                pending_payload.to_gh_api_json() + "\n", encoding="utf-8"
+                json_only_payload.to_gh_api_json() + "\n", encoding="utf-8"
             )
             written_payload_str = str(resolved_payload_path.resolve())
 
@@ -689,6 +699,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             updated_count=updated,
             db_path=str(db.db_path),
             review_payload_path=written_payload_str,
+            review_body_path=written_body_str,
             recorded_comments=summaries,
         )
         return response.model_dump_json(indent=2)

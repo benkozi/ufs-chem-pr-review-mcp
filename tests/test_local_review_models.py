@@ -303,6 +303,7 @@ No location bullet here.
     assert len(payload_no_diff.comments) == 1
     assert payload_no_diff.comments[0].start_line == 12
     assert payload_no_diff.comments[0].line == 18
+    assert payload_no_diff.body is not None
     assert "File-Level & Out-of-Diff Findings" in payload_no_diff.body
 
     # Test build_pending_review_payload with diff_text filtering
@@ -346,6 +347,7 @@ diff --git a/src/other.cpp b/src/other.cpp
     assert payload_with_diff.comments[0].line == 18
     assert payload_with_diff.comments[1].start_line is None
     assert payload_with_diff.comments[1].line == 15
+    assert payload_with_diff.body is not None
     assert "`src/mod.cpp:100-105`" in payload_with_diff.body
 
 
@@ -369,3 +371,26 @@ def test_get_mcp_server_commit_hash_fallbacks(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(subprocess, "run", mock_run_error)
     assert get_mcp_server_commit_hash() == "unknown"
+
+
+def test_build_pending_review_payload_links_commit_hash() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash=sha,
+    )
+    assert payload.body is not None
+    assert (
+        f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [{sha[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{sha})"
+        in payload.body
+    )
+
+    unknown_payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash="unknown",
+    )
+    assert unknown_payload.body is not None
+    assert (
+        "Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown"
+        in unknown_payload.body
+    )
