@@ -24,7 +24,9 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     RecordedCommentSummary,
     RecordReviewCommentsInput,
     RecordReviewCommentsResponse,
+    build_pending_review_payload,
     generate_synthetic_node_id,
+    parse_diff_right_ranges,
     parse_review_markdown_findings,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
@@ -33,6 +35,7 @@ from ufs_chem_pr_review_mcp.models.mcp_tools import (
     EvaluateDiffInput,
     EvaluatePrInput,
     GeneratePatchInput,
+    GuidelineResourceInfo,
     PonytailFinding,
     ReviewContextResponse,
     SearchReviewHistoryInput,
@@ -57,6 +60,7 @@ __all__ = [
     "GeneratePatchInput",
     "GitHubInlineComment",
     "GitHubReviewPayload",
+    "GuidelineResourceInfo",
     "LocalReviewCommentInput",
     "OutputFormat",
     "PatchResult",
@@ -74,7 +78,9 @@ __all__ = [
     "ReviewMode",
     "SearchReviewHistoryInput",
     "SupportedLanguage",
+    "build_pending_review_payload",
     "generate_synthetic_node_id",
+    "parse_diff_right_ranges",
     "parse_github_pr_url",
     "parse_review_markdown_findings",
 ]

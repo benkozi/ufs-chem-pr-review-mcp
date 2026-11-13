@@ -2,6 +2,7 @@
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,6 @@ from ufs_chem_pr_review_mcp.logs import configure_logging, get_logger
 from ufs_chem_pr_review_mcp.models.common import (
     OutputFormat,
     ReviewCategory,
-    ReviewEvent,
     ReviewMode,
     SupportedLanguage,
 )
@@ -35,10 +35,12 @@ from ufs_chem_pr_review_mcp.models.github import (
 from ufs_chem_pr_review_mcp.models.local_review import (
     LocalReviewCommentInput,
     RecordReviewCommentsResponse,
+    build_pending_review_payload,
     parse_review_markdown_findings,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     DomainFinding,
+    GuidelineResourceInfo,
     PonytailFinding,
     ReviewContextResponse,
 )
@@ -259,16 +261,12 @@ def _render_github_json(ctx: ReviewContextResponse) -> str:
             )
         )
 
-    max_crit = max([df.criticality for df in ctx.domain_findings], default=1)
-    event = ReviewEvent.REQUEST_CHANGES if max_crit >= 4 else ReviewEvent.COMMENT
-
     summary_text = _render_markdown(ctx)
     payload = GitHubReviewPayload(
-        event=event,
         body=summary_text,
         comments=comments,
     )
-    return payload.model_dump_json(indent=2)
+    return payload.to_gh_api_json()
 
 
 def _format_context_response(ctx: ReviewContextResponse, output_format: str) -> str:
@@ -541,21 +539,18 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                     path=f["path"],
                     line=f["line"],
                     side=f.get("side", "RIGHT"),
+                    start_line=f.get("start_line"),
+                    start_side=f.get("start_side"),
                     body=f.get("body", ""),
                     suggested_change=f.get("suggested_change"),
                 )
                 for f in findings
             ]
-            # Replace bodies with rendered_body for GitHub suggestion blocks
-            rendered_comments = [
-                c.model_copy(update={"body": c.rendered_body()}) for c in comments
-            ]
             payload = GitHubReviewPayload(
-                event=ReviewEvent.COMMENT,
                 body=critical_summary,
-                comments=rendered_comments,
+                comments=comments,
             )
-            return payload.model_dump_json(indent=2)
+            return payload.to_gh_api_json()
 
         # Markdown output
         lines = [f"## Code Review Summary\n\n{critical_summary}\n"]
@@ -578,7 +573,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
     # 7. record_review_comments
     @mcp.tool(
         annotations=MUTATING_ANNOTATIONS,
-        description="Immediately records code review comments and findings into the local review database (data/ufs_chem_reviews.sqlite3). Accepts structured findings or a markdown review report file path.",
+        description="Immediately records code review comments and findings into the local review database (data/ufs_chem_reviews.sqlite3) and writes a pending-only review_payload.json alongside review_file_path for gh api.",
     )
     def record_review_comments(
         repo: str | None = None,
@@ -587,6 +582,9 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         comments: list[dict[str, Any]] | None = None,
         review_file_path: str | None = None,
         markdown_text: str | None = None,
+        payload_output_path: str | None = None,
+        diff_text: str | None = None,
+        commit_id: str | None = None,
         source_tag: str = "agent-deep-dive",
     ) -> str:
         if pr_url:
@@ -610,6 +608,9 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             )
 
         parsed_comments: list[LocalReviewCommentInput] = []
+        resolved_payload_path: Path | None = (
+            Path(payload_output_path) if payload_output_path else None
+        )
 
         if comments:
             for c in comments:
@@ -620,6 +621,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             if fpath.exists():
                 text = fpath.read_text(encoding="utf-8")
                 parsed_comments.extend(parse_review_markdown_findings(text))
+                if resolved_payload_path is None:
+                    resolved_payload_path = fpath.parent / "review_payload.json"
             else:
                 logger.warning(f"review_file_path does not exist: {review_file_path}")
 
@@ -640,6 +643,54 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             comments=parsed_comments,
         )
 
+        written_payload_str: str | None = None
+        written_body_str: str | None = None
+        if resolved_payload_path is not None:
+            resolved_payload_path.parent.mkdir(parents=True, exist_ok=True)
+            if diff_text is None and target_repo and target_pr:
+                try:
+                    token = resolve_github_token(settings.github_token)
+                    client = GitHubClient(token=token)
+                    try:
+                        diff_text = client.get_pr_diff(target_repo, target_pr)
+                    finally:
+                        client.close()
+                except Exception as exc:
+                    logger.warning(
+                        "Could not auto-fetch PR diff for hunk validation: %s", exc
+                    )
+                    try:
+                        gh_res = subprocess.run(
+                            ["gh", "pr", "diff", str(target_pr), "--repo", target_repo],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                            timeout=10,
+                        )
+                        if gh_res.returncode == 0 and gh_res.stdout:
+                            diff_text = gh_res.stdout
+                    except Exception:
+                        pass
+
+            pending_payload = build_pending_review_payload(
+                comments=parsed_comments,
+                diff_text=diff_text,
+                commit_id=commit_id,
+            )
+            resolved_body_path = resolved_payload_path.with_name(
+                f"{resolved_payload_path.stem}_body.md"
+            )
+            if pending_payload.body:
+                resolved_body_path.write_text(
+                    pending_payload.body.rstrip() + "\n", encoding="utf-8"
+                )
+                written_body_str = str(resolved_body_path.resolve())
+            json_only_payload = pending_payload.model_copy(update={"body": None})
+            resolved_payload_path.write_text(
+                json_only_payload.to_gh_api_json() + "\n", encoding="utf-8"
+            )
+            written_payload_str = str(resolved_payload_path.resolve())
+
         response = RecordReviewCommentsResponse(
             repo=target_repo,
             pr_number=target_pr,
@@ -647,6 +698,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             inserted_count=inserted,
             updated_count=updated,
             db_path=str(db.db_path),
+            review_payload_path=written_payload_str,
+            review_body_path=written_body_str,
             recorded_comments=summaries,
         )
         return response.model_dump_json(indent=2)
@@ -662,53 +715,92 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
     def list_guidelines_resource() -> str:
         """JSON listing of all available guideline categories and their descriptions."""
         categories = [
-            {
-                "category": "fortran",
-                "uri": "ufs-chem://guidelines/fortran",
-                "description": "OMD Fortran 2018+ standards (Flux Protocol): explicit typing, OpenMP default(none), pure compute kernels.",
-            },
-            {
-                "category": "cpp",
-                "uri": "ufs-chem://guidelines/cpp",
-                "description": "OMD C++23 standards (Forge Protocol): strict RAII, std::mdspan Fortran layout, Kokkos abstractions.",
-            },
-            {
-                "category": "bash",
-                "uri": "ufs-chem://guidelines/bash",
-                "description": "OMD Bash standards: set -euo pipefail, Google style, EE2 J-Job hierarchy, no background processes.",
-            },
-            {
-                "category": "python",
-                "uri": "ufs-chem://guidelines/python",
-                "description": "OMD Python standards (Aero Protocol): Pangeo stack, lazy Dask execution, typed APIs.",
-            },
-            {
-                "category": "ee2",
-                "uri": "ufs-chem://guidelines/ee2",
-                "description": "NCO HPC Environment Equivalence (EE2): standard operational paths ($DATA, $COMROOT), standard fatal error prefixes.",
-            },
-            {
-                "category": "hpc-libraries",
-                "uri": "ufs-chem://guidelines/hpc-libraries",
-                "description": "HPC scientific libraries: ESMF return code checking, ParallelIO (PIO), NetCDF-4 collective I/O, Zarr cloud data.",
-            },
-            {
-                "category": "chemistry_physics",
-                "uri": "ufs-chem://guidelines/chemistry_physics",
-                "description": "Chemistry & Physics guidelines: molecular weights, molar-to-mass mixing ratios, mass conservation.",
-            },
-            {
-                "category": "esmf_nuopc",
-                "uri": "ufs-chem://guidelines/esmf_nuopc",
-                "description": "ESMF & NUOPC Cap guidelines: ESMF_StateGet error checking, field realization, clock coordination.",
-            },
-            {
-                "category": "ponytail",
-                "uri": "ufs-chem://guidelines/ponytail",
-                "description": "Ponytail over-engineering guidelines: dead code elimination, native constructs, YAGNI, shrinking code footprint.",
-            },
+            GuidelineResourceInfo(
+                category="fortran",
+                uri="ufs-chem://guidelines/fortran",
+                description="OMD Fortran 2018+ standards (Flux Protocol): explicit typing, OpenMP default(none), pure compute kernels, fpm test verification.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="cpp",
+                uri="ufs-chem://guidelines/cpp",
+                description="OMD C++23 standards (Forge Protocol): strict RAII, std::mdspan Fortran layout, Kokkos abstractions, GTest verification.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="bash",
+                uri="ufs-chem://guidelines/bash",
+                description="OMD Bash standards: set -euo pipefail, Google style, EE2 J-Job hierarchy, no background processes.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="python",
+                uri="ufs-chem://guidelines/python",
+                description="OMD Python standards (Aero Protocol): Pangeo stack, lazy Dask execution, typed APIs, dual-backend NumPy/Dask verification.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="ee2",
+                uri="ufs-chem://guidelines/ee2",
+                description="NCO HPC Environment Equivalence (EE2): standard operational paths ($DATA, $COMROOT), standard fatal error prefixes.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="hpc-libraries",
+                uri="ufs-chem://guidelines/hpc-libraries",
+                description="HPC scientific libraries: ESMF return code checking, ParallelIO (PIO), NetCDF-4 collective I/O, Zarr cloud data.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="code-review-generic",
+                uri="ufs-chem://guidelines/code-review-generic",
+                description="OMD comprehensive scientific and HPC code review instructions covering C, C++, Fortran, Python, and Bash.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="makefile",
+                uri="ufs-chem://guidelines/makefile",
+                description="OMD GNU Make guidelines: target hygiene, order-only prerequisites, auto-dependencies, and no recursive make.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="ee2-review-gate",
+                uri="ufs-chem://guidelines/ee2-review-gate",
+                description="NCO EE2 20-item review gate and portability routing ([portable] vs [WCOSS]) for operational vs research code.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="github-actions",
+                uri="ufs-chem://guidelines/github-actions",
+                description="GitHub Actions 3-pillar security and efficiency guidelines: script injection prevention, SHA pinning, least-privilege permissions, and caching.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="rdhpcs-hpc",
+                uri="ufs-chem://guidelines/rdhpcs-hpc",
+                description="NOAA RDHPCS HPC workload manager (Slurm/PBS) guidelines: resource allocation consistency, QOS tiers, /home execution restrictions, and module purging.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="chemistry_physics",
+                uri="ufs-chem://guidelines/chemistry_physics",
+                description="Chemistry & Physics guidelines: molecular weights, molar-to-mass mixing ratios, mass conservation.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="esmf_nuopc",
+                uri="ufs-chem://guidelines/esmf_nuopc",
+                description="ESMF & NUOPC Cap guidelines: ESMF_StateGet error checking, field realization, clock coordination.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
+                category="ponytail",
+                uri="ufs-chem://guidelines/ponytail",
+                description="Ponytail over-engineering guidelines: dead code elimination, native constructs, YAGNI, shrinking code footprint.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
         ]
-        return json.dumps(categories, indent=2)
+        return json.dumps([c.model_dump(mode="json") for c in categories], indent=2)
 
     @mcp.resource("ufs-chem://guidelines/{category}")
     def get_guidelines_resource(category: str) -> str:
@@ -724,6 +816,22 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             "ee2": "ee2-standards.md",
             "hpc-libraries": "hpc-libraries.md",
             "hpc_libraries": "hpc-libraries.md",
+            "code-review-generic": "code-review-generic.instructions.md",
+            "code_review_generic": "code-review-generic.instructions.md",
+            "code-review": "code-review-generic.instructions.md",
+            "makefile": "makefile.instructions.md",
+            "make": "makefile.instructions.md",
+            "ee2-review-gate": "ee2-review-gate.md",
+            "ee2_review_gate": "ee2-review-gate.md",
+            "ee2-gate": "ee2-review-gate.md",
+            "github-actions": "github-actions.md",
+            "github_actions": "github-actions.md",
+            "gha": "github-actions.md",
+            "rdhpcs-hpc": "rdhpcs-hpc.md",
+            "rdhpcs_hpc": "rdhpcs-hpc.md",
+            "hpc": "rdhpcs-hpc.md",
+            "slurm": "rdhpcs-hpc.md",
+            "pbs": "rdhpcs-hpc.md",
         }
         normalized = category.lower().strip()
         if normalized in file_map:

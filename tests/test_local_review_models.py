@@ -11,7 +11,10 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     RecordedCommentSummary,
     RecordReviewCommentsInput,
     RecordReviewCommentsResponse,
+    build_pending_review_payload,
     generate_synthetic_node_id,
+    get_mcp_server_commit_hash,
+    parse_diff_right_ranges,
     parse_review_markdown_findings,
 )
 
@@ -264,3 +267,130 @@ def test_parse_review_markdown_additional_branches() -> None:
     assert findings[0].path == "nuopc/cap.F90"
     assert findings[0].category == ReviewCategory.ESMF_NUOPC
     assert findings[1].category == ReviewCategory.CORRECTNESS
+
+
+def test_parse_review_markdown_ranges_and_build_pending_payload() -> None:
+    report = """### [P0] Range Finding With Recommended Post Location
+- **Location**: `src/mod.cpp:10-30`
+- **Recommended Post Location**: `src/mod.cpp:12-18`
+- **Tag**: `[memory-safety]`
+
+**[P0]: Range issue**
+
+Fix this range.
+```suggestion
+int x = 0;
+```
+---
+
+### [P2] Unanchored General Finding
+No location bullet here.
+"""
+    findings = parse_review_markdown_findings(report)
+    assert len(findings) == 2
+    assert findings[0].path == "src/mod.cpp"
+    assert findings[0].start_line == 12
+    assert findings[0].line == 18
+    assert "- **Recommended Post Location**:" not in findings[0].body
+    assert not findings[0].body.endswith("---")
+    assert findings[1].path == "unknown"
+    assert findings[1].line is None
+
+    # Test build_pending_review_payload without diff_text
+    payload_no_diff = build_pending_review_payload(findings, commit_id="abc1234")
+    raw_no_diff = payload_no_diff.to_gh_api_json()
+    assert '"event"' not in raw_no_diff
+    assert len(payload_no_diff.comments) == 1
+    assert payload_no_diff.comments[0].start_line == 12
+    assert payload_no_diff.comments[0].line == 18
+    assert payload_no_diff.body is not None
+    assert "File-Level & Out-of-Diff Findings" in payload_no_diff.body
+
+    # Test build_pending_review_payload with diff_text filtering
+    diff_text = """diff --git a/src/mod.cpp b/src/mod.cpp
+--- a/src/mod.cpp
++++ b/src/mod.cpp
+@@ -10,10 +10,12 @@
++int a = 1;
+diff --git a/src/other.cpp b/src/other.cpp
+--- a/src/other.cpp
++++ b/src/other.cpp
+@@ -50 +50 @@
++int b = 2;
+"""
+    ranges = parse_diff_right_ranges(diff_text)
+    assert ranges["src/mod.cpp"] == [(10, 21)]
+    assert ranges["src/other.cpp"] == [(50, 50)]
+
+    extra_comments = [
+        *findings,
+        # Partial range outside hunk start, but end line inside hunk and no suggestion -> attaches to end line
+        LocalReviewCommentInput(
+            path="src/mod.cpp",
+            start_line=2,
+            line=15,
+            body="End line is in hunk",
+        ),
+        # Outside diff hunk completely -> goes to out_of_diff_notes
+        LocalReviewCommentInput(
+            path="src/mod.cpp",
+            start_line=100,
+            line=105,
+            body="Outside diff hunk",
+        ),
+    ]
+    payload_with_diff = build_pending_review_payload(
+        extra_comments, diff_text=diff_text
+    )
+    assert len(payload_with_diff.comments) == 2
+    assert payload_with_diff.comments[0].start_line == 12
+    assert payload_with_diff.comments[0].line == 18
+    assert payload_with_diff.comments[1].start_line is None
+    assert payload_with_diff.comments[1].line == 15
+    assert payload_with_diff.body is not None
+    assert "`src/mod.cpp:100-105`" in payload_with_diff.body
+
+
+def test_get_mcp_server_commit_hash_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def mock_run_nonzero(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["git"], returncode=1, stdout="", stderr="err"
+        )
+
+    monkeypatch.setattr(subprocess, "run", mock_run_nonzero)
+    assert get_mcp_server_commit_hash() == "unknown"
+
+    def mock_run_error(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise OSError("git not found")
+
+    monkeypatch.setattr(subprocess, "run", mock_run_error)
+    assert get_mcp_server_commit_hash() == "unknown"
+
+
+def test_build_pending_review_payload_links_commit_hash() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash=sha,
+    )
+    assert payload.body is not None
+    assert (
+        f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [{sha[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{sha})"
+        in payload.body
+    )
+
+    unknown_payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash="unknown",
+    )
+    assert unknown_payload.body is not None
+    assert (
+        "Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown"
+        in unknown_payload.body
+    )
