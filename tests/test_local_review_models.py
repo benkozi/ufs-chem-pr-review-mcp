@@ -384,6 +384,10 @@ def test_build_pending_review_payload_links_commit_hash() -> None:
         f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [{sha[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{sha})"
         in payload.body
     )
+    assert (
+        f"*Note: this comment was made by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [{sha[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{sha})*"
+        in payload.comments[0].body
+    )
 
     unknown_payload = build_pending_review_payload(
         [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
@@ -393,4 +397,8 @@ def test_build_pending_review_payload_links_commit_hash() -> None:
     assert (
         "Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown"
         in unknown_payload.body
+    )
+    assert (
+        "*Note: this comment was made by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown*"
+        in unknown_payload.comments[0].body
     )

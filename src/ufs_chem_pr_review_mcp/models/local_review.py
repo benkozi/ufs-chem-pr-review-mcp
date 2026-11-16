@@ -408,6 +408,15 @@ def build_pending_review_payload(
     pending review summary body so ``gh api`` never rejects the POST with HTTP 422.
     """
     mcp_commit = mcp_commit_hash or get_mcp_server_commit_hash()
+    commit_ref = (
+        f"[{mcp_commit[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{mcp_commit})"
+        if mcp_commit != "unknown"
+        else "unknown"
+    )
+    inline_footer = (
+        "\n\n---\n"
+        f"*Note: this comment was made by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ {commit_ref}*"
+    )
     diff_ranges = parse_diff_right_ranges(diff_text) if diff_text else {}
     has_diff_filter = bool(diff_ranges)
 
@@ -422,6 +431,11 @@ def build_pending_review_payload(
             suggested_change=c.suggested_change,
         )
         rendered_text = temp_comment.rendered_body()
+        inline_body = (
+            rendered_text
+            if "ufs-chem-pr-review-mcp" in rendered_text
+            else f"{rendered_text.rstrip()}{inline_footer}"
+        )
 
         if c.line is None or c.path == "unknown":
             loc_label = c.path if c.path != "unknown" else "General"
@@ -445,7 +459,7 @@ def build_pending_review_payload(
                         side="RIGHT",
                         start_line=s_line,
                         start_side="RIGHT" if s_line is not None else None,
-                        body=rendered_text,
+                        body=inline_body,
                     )
                 )
             elif c.suggested_change is None and _range_in_hunks(
@@ -456,7 +470,7 @@ def build_pending_review_payload(
                         path=c.path,
                         line=c.line,
                         side="RIGHT",
-                        body=rendered_text,
+                        body=inline_body,
                     )
                 )
             else:
@@ -476,15 +490,10 @@ def build_pending_review_payload(
                     side="RIGHT",
                     start_line=s_line,
                     start_side="RIGHT" if s_line is not None else None,
-                    body=rendered_text,
+                    body=inline_body,
                 )
             )
 
-    commit_ref = (
-        f"[{mcp_commit[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{mcp_commit})"
-        if mcp_commit != "unknown"
-        else "unknown"
-    )
     summary_parts = [
         f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ {commit_ref}\n\n"
         f"Pending code review ({len(inline_comments)} inline diff comment(s), "
