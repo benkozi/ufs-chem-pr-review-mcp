@@ -37,6 +37,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     RecordReviewCommentsResponse,
     build_pending_review_payload,
     parse_review_markdown_findings,
+    parse_review_model_attribution,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     DomainFinding,
@@ -586,6 +587,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         diff_text: str | None = None,
         commit_id: str | None = None,
         source_tag: str = "agent-deep-dive",
+        model_vendor: str | None = None,
+        model_name: str | None = None,
     ) -> str:
         if pr_url:
             try:
@@ -616,11 +619,13 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             for c in comments:
                 parsed_comments.append(LocalReviewCommentInput.model_validate(c))
 
+        extracted_model_attr: str | None = None
         if review_file_path:
             fpath = Path(review_file_path)
             if fpath.exists():
                 text = fpath.read_text(encoding="utf-8")
                 parsed_comments.extend(parse_review_markdown_findings(text))
+                extracted_model_attr = parse_review_model_attribution(text)
                 if resolved_payload_path is None:
                     resolved_payload_path = fpath.parent / "review_payload.json"
             else:
@@ -628,6 +633,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
 
         if markdown_text:
             parsed_comments.extend(parse_review_markdown_findings(markdown_text))
+            if extracted_model_attr is None:
+                extracted_model_attr = parse_review_model_attribution(markdown_text)
 
         if not parsed_comments:
             return json.dumps(
@@ -672,10 +679,17 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                     except Exception:
                         pass
 
+            effective_vendor = model_vendor
+            effective_model = model_name
+            if not effective_vendor and not effective_model and extracted_model_attr:
+                effective_model = extracted_model_attr
+
             pending_payload = build_pending_review_payload(
                 comments=parsed_comments,
                 diff_text=diff_text,
                 commit_id=commit_id,
+                model_vendor=effective_vendor,
+                model_name=effective_model,
             )
             resolved_body_path = resolved_payload_path.with_name(
                 f"{resolved_payload_path.stem}_body.md"

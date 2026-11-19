@@ -277,17 +277,22 @@ Immediately after generating the review report, the agent automatically persists
        "pr_url": "<pr_url>",
        "review_file_path": "<target_output_file_path>",
        "commit_id": "<head_sha_40_char>",
-       "diff_text": "<diff_text_from_phase_2>"
+       "diff_text": "<diff_text_from_phase_2>",
+       "model_vendor": "<ai_vendor_name>",
+       "model_name": "<ai_model_name>"
      }
      ```
-     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`.)*
+     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`. Also pass `"model_vendor"` and `"model_name"`—or include `- **AI Model & Vendor**: <vendor> / <model>` in Section 1 of the markdown report—so `review_payload_body.md` records the exact AI model and vendor used.)*
 2. **Under the Hood Execution**:
    - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
    - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).
-   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
-   - **Machine-Generated Provenance Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header:
-     `Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [<short_hash>](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/<current hash of the mcp server>)`
-     (where `<current hash of the mcp server>` is dynamically resolved from `git rev-parse HEAD` of the MCP repository).
+   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor attribution + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
+   - **Machine-Generated Provenance & AI Model Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header and the AI model + vendor used for the review:
+     ```markdown
+     Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [<short_hash>](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/<current hash of the mcp server>)
+     AI Model & Vendor: <vendor> / <model_name>
+     ```
+     (where `<current hash of the mcp server>` is dynamically resolved from `git rev-parse HEAD` of the MCP repository, and `<vendor> / <model_name>` identifies the human-readable AI vendor and model used for the review).
    - **Pending-Only Safety Guarantee**: `GitHubReviewPayload` strictly omits (and forbids) the `"event"` field. Because GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` API sets a review to `PENDING` whenever `"event"` is omitted, `review_payload.json` can **only ever create a private `PENDING` draft review** on GitHub—it can never publicly submit `COMMENT`, `REQUEST_CHANGES`, or `APPROVE`.
 3. **Posting the Pending Review to GitHub via `gh api`**:
    - **Where `review_payload.json` is written**: Always written to `<parent_dir_of_review_md>/review_payload.json` (and returned in `RecordReviewCommentsResponse.review_payload_path`).
@@ -328,6 +333,7 @@ The generated markdown document MUST adhere to this structure:
 - **Verdict**: [APPROVE | REQUEST CHANGES | COMMENT]
 - **Target Repo & PR**: [<owner>/<repo>#<pr_number>](https://github.com/<owner>/<repo>/pull/<pr_number>)
 - **Pinned Revision**: `<base_sha_short>..<head_sha_short>` (<N> changed files across <M> logical groups)
+- **AI Model & Vendor**: <vendor> / <model_name>
 - **Lines Removable (Ponytail)**: ~<N> lines
 - **Findings Summary**: <P0_count> Blockers (P0), <P1_count> Majors (P1), <P2_count> Over-Engineering (P2), <P3_count> Nits (P3)
 - **Change Groups Reviewed**: <Concise list of functional file groups reviewed>

@@ -16,6 +16,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     get_mcp_server_commit_hash,
     parse_diff_right_ranges,
     parse_review_markdown_findings,
+    parse_review_model_attribution,
 )
 
 
@@ -402,3 +403,18 @@ def test_build_pending_review_payload_links_commit_hash() -> None:
         "*Note: this comment was made by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown*"
         in unknown_payload.comments[0].body
     )
+
+
+def test_build_pending_review_payload_includes_model_and_vendor() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash=sha,
+        model_vendor="Google DeepMind",
+        model_name="Gemini",
+    )
+    assert payload.body is not None
+    assert "AI Model & Vendor: Google DeepMind / Gemini" in payload.body
+
+    md = "## 1. Executive Summary & Verdict\n- **AI Model & Vendor**: Google DeepMind / Gemini\n"
+    assert parse_review_model_attribution(md) == "Google DeepMind / Gemini"
