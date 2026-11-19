@@ -411,6 +411,97 @@ def parse_review_model_attribution(markdown_text: str) -> str | None:
     return None
 
 
+_EXEC_SUMMARY_SECTION_RE = re.compile(
+    r"^##\s+1\.\s+Executive\s+Summary.*?\n(.*?)(?=^##\s+\d+\.|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
+
+def parse_review_executive_summary(
+    markdown_text: str, max_bullets: int = 5
+) -> list[str]:
+    """Extract up to ``max_bullets`` executive summary bullets from Section 1 of a review markdown document."""
+    match = _EXEC_SUMMARY_SECTION_RE.search(markdown_text)
+    if not match:
+        return []
+
+    section_body = match.group(1)
+    bullets: list[str] = []
+    skip_prefixes = (
+        "**target repo",
+        "**ai model",
+        "**change groups reviewed",
+    )
+
+    lines = section_body.splitlines()
+    i = 0
+    while i < len(lines):
+        raw_line = lines[i]
+        stripped = raw_line.strip()
+        if raw_line.startswith("- ") or raw_line.startswith("* "):
+            item_text = stripped[2:].strip()
+            lower_item = item_text.lower()
+            if any(lower_item.startswith(p) for p in skip_prefixes):
+                i += 1
+                while i < len(lines) and (
+                    lines[i].startswith("  ") or lines[i].startswith("\t")
+                ):
+                    i += 1
+                continue
+
+            sub_items: list[str] = []
+            i += 1
+            while i < len(lines) and (
+                lines[i].startswith("  ") or lines[i].startswith("\t")
+            ):
+                sub_s = lines[i].strip()
+                if sub_s.startswith(("- ", "* ")):
+                    sub_items.append(sub_s[2:].strip())
+                elif sub_s:
+                    sub_items.append(sub_s)
+                i += 1
+
+            if not item_text.endswith(":") and sub_items:
+                combined = f"{item_text} {' '.join(sub_items)}"
+                bullets.append(combined)
+            elif item_text.endswith(":") and sub_items:
+                combined = f"{item_text} {'; '.join(sub_items)}"
+                bullets.append(combined)
+            elif item_text:
+                bullets.append(item_text)
+        else:
+            i += 1
+
+    return bullets[:max_bullets]
+
+
+def _normalize_executive_summary_bullets(
+    executive_summary: list[str] | str | None, max_bullets: int = 5
+) -> list[str]:
+    """Normalize caller-supplied executive summary items to at most ``max_bullets`` clean bullet strings."""
+    if not executive_summary:
+        return []
+    raw_items: list[str]
+    if isinstance(executive_summary, str):
+        raw_items = [
+            line.strip()
+            for line in executive_summary.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+    else:
+        raw_items = [
+            str(item).strip() for item in executive_summary if str(item).strip()
+        ]
+
+    cleaned: list[str] = []
+    for item in raw_items:
+        if item.startswith(("- ", "* ")):
+            item = item[2:].strip()
+        if item:
+            cleaned.append(item)
+    return cleaned[:max_bullets]
+
+
 def build_pending_review_payload(
     comments: list[LocalReviewCommentInput],
     diff_text: str | None = None,
@@ -418,6 +509,8 @@ def build_pending_review_payload(
     mcp_commit_hash: str | None = None,
     model_vendor: str | None = None,
     model_name: str | None = None,
+    thinking_effort: str | None = None,
+    executive_summary: list[str] | str | None = None,
 ) -> GitHubReviewPayload:
     """Build a pending-only GitHubReviewPayload (no event field) from review findings.
 
@@ -513,13 +606,26 @@ def build_pending_review_payload(
             )
 
     if model_vendor and model_name:
-        model_line = (
-            f"AI Model & Vendor: {model_vendor.strip()} / {model_name.strip()}\n"
-        )
+        base_model_attr = f"{model_vendor.strip()} / {model_name.strip()}"
     elif model_name:
-        model_line = f"AI Model & Vendor: {model_name.strip()}\n"
+        base_model_attr = model_name.strip()
     elif model_vendor:
-        model_line = f"AI Model & Vendor: {model_vendor.strip()}\n"
+        base_model_attr = model_vendor.strip()
+    else:
+        base_model_attr = ""
+
+    if base_model_attr:
+        if (
+            thinking_effort
+            and thinking_effort.strip()
+            and "thinking effort" not in base_model_attr.lower()
+        ):
+            base_model_attr = (
+                f"{base_model_attr} (Thinking Effort: {thinking_effort.strip()})"
+            )
+        model_line = f"AI Model & Vendor: {base_model_attr}\n"
+    elif thinking_effort and thinking_effort.strip():
+        model_line = f"AI Model & Vendor: Thinking Effort: {thinking_effort.strip()}\n"
     else:
         model_line = ""
 
@@ -529,6 +635,12 @@ def build_pending_review_payload(
         f"Pending code review ({len(inline_comments)} inline diff comment(s), "
         f"{len(out_of_diff_notes)} file/out-of-diff finding(s))."
     ]
+    exec_bullets = _normalize_executive_summary_bullets(
+        executive_summary, max_bullets=5
+    )
+    if exec_bullets:
+        bullet_block = "\n".join(f"- {b}" for b in exec_bullets)
+        summary_parts.append(f"### Executive Summary\n\n{bullet_block}")
     if out_of_diff_notes:
         summary_parts.append(
             "### File-Level & Out-of-Diff Findings\n\n"

@@ -15,6 +15,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     generate_synthetic_node_id,
     get_mcp_server_commit_hash,
     parse_diff_right_ranges,
+    parse_review_executive_summary,
     parse_review_markdown_findings,
     parse_review_model_attribution,
 )
@@ -412,9 +413,43 @@ def test_build_pending_review_payload_includes_model_and_vendor() -> None:
         mcp_commit_hash=sha,
         model_vendor="Google DeepMind",
         model_name="Gemini",
+        thinking_effort="Medium",
+        executive_summary=[
+            "**Verdict**: REQUEST CHANGES",
+            "**Findings**: 2 Majors (P1), 2 Moderates (P2), 2 Nits (P3)",
+            "**Key Bug**: Bicubic selective geometry discovery uses k=16 instead of 64 wet cells",
+            "**CI Gating**: Distributed MPI tests lack CTest LABELS",
+            "**Ponytail**: ~76 lines removable across unit test harnesses",
+            "**Extra Bullet 6**: Should be truncated to max 5 bullets",
+        ],
     )
     assert payload.body is not None
-    assert "AI Model & Vendor: Google DeepMind / Gemini" in payload.body
+    assert (
+        "AI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)"
+        in payload.body
+    )
+    assert "### Executive Summary" in payload.body
+    assert "- **Verdict**: REQUEST CHANGES" in payload.body
+    assert (
+        "- **Ponytail**: ~76 lines removable across unit test harnesses" in payload.body
+    )
+    assert "Extra Bullet 6" not in payload.body
 
-    md = "## 1. Executive Summary & Verdict\n- **AI Model & Vendor**: Google DeepMind / Gemini\n"
-    assert parse_review_model_attribution(md) == "Google DeepMind / Gemini"
+    md = (
+        "## 1. Executive Summary & Verdict\n"
+        "- **Verdict**: REQUEST CHANGES\n"
+        "- **Target Repo & PR**: [NOAA-EMC/HELM#39](https://github.com/NOAA-EMC/HELM/pull/39)\n"
+        "- **Pinned Revision**: `c3f9e75..dbe8592` (120 changed files)\n"
+        "- **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)\n"
+        "- **Lines Removable (Ponytail)**: ~76 lines\n"
+        "- **Findings Summary**: 0 P0, 2 P1, 2 P2, 2 P3\n"
+        "- **High-Level Takeaway**: Core kernels are solid; fix bicubic discovery and Dask serialization.\n"
+        "## 2. Existing PR Review Discussions\n"
+    )
+    assert (
+        parse_review_model_attribution(md)
+        == "Google DeepMind / Gemini (Thinking Effort: Medium)"
+    )
+    extracted_bullets = parse_review_executive_summary(md)
+    assert len(extracted_bullets) == 5
+    assert extracted_bullets[0] == "**Verdict**: REQUEST CHANGES"

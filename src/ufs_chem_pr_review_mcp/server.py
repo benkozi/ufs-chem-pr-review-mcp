@@ -36,6 +36,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     LocalReviewCommentInput,
     RecordReviewCommentsResponse,
     build_pending_review_payload,
+    parse_review_executive_summary,
     parse_review_markdown_findings,
     parse_review_model_attribution,
 )
@@ -589,6 +590,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         source_tag: str = "agent-deep-dive",
         model_vendor: str | None = None,
         model_name: str | None = None,
+        thinking_effort: str | None = None,
+        executive_summary: list[str] | str | None = None,
     ) -> str:
         if pr_url:
             try:
@@ -620,12 +623,14 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 parsed_comments.append(LocalReviewCommentInput.model_validate(c))
 
         extracted_model_attr: str | None = None
+        extracted_exec_summary: list[str] = []
         if review_file_path:
             fpath = Path(review_file_path)
             if fpath.exists():
                 text = fpath.read_text(encoding="utf-8")
                 parsed_comments.extend(parse_review_markdown_findings(text))
                 extracted_model_attr = parse_review_model_attribution(text)
+                extracted_exec_summary = parse_review_executive_summary(text)
                 if resolved_payload_path is None:
                     resolved_payload_path = fpath.parent / "review_payload.json"
             else:
@@ -635,6 +640,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             parsed_comments.extend(parse_review_markdown_findings(markdown_text))
             if extracted_model_attr is None:
                 extracted_model_attr = parse_review_model_attribution(markdown_text)
+            if not extracted_exec_summary:
+                extracted_exec_summary = parse_review_executive_summary(markdown_text)
 
         if not parsed_comments:
             return json.dumps(
@@ -683,6 +690,11 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             effective_model = model_name
             if not effective_vendor and not effective_model and extracted_model_attr:
                 effective_model = extracted_model_attr
+            effective_exec_summary = (
+                executive_summary
+                if executive_summary is not None
+                else extracted_exec_summary
+            )
 
             pending_payload = build_pending_review_payload(
                 comments=parsed_comments,
@@ -690,6 +702,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 commit_id=commit_id,
                 model_vendor=effective_vendor,
                 model_name=effective_model,
+                thinking_effort=thinking_effort,
+                executive_summary=effective_exec_summary,
             )
             resolved_body_path = resolved_payload_path.with_name(
                 f"{resolved_payload_path.stem}_body.md"
