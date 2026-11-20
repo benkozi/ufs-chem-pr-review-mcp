@@ -376,3 +376,49 @@ async def test_record_review_comments_auto_fetches_diff(
     )
     data3 = json.loads(_tool_text(res3))
     assert data3["review_payload_path"] is not None
+
+
+@pytest.mark.asyncio
+async def test_record_review_comments_extracts_model_attribution_and_summary(
+    mcp_app: FastMCP, tmp_path: Path
+) -> None:
+    md_path = tmp_path / "review-with-meta.md"
+    md_path.write_text(
+        """# Pull Request Review: [ufs-community/CATChem#777]
+
+## 1. Executive Summary & Verdict
+- **Verdict**: REQUEST CHANGES
+- **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)
+
+## 5. Detailed Findings & Machine-Applicable Suggestions
+
+### [P1] Sample Finding
+- **Location**: `src/core.cpp:12`
+- **Problem**: Test problem.
+""",
+        encoding="utf-8",
+    )
+    sample_diff = """diff --git a/src/core.cpp b/src/core.cpp
+--- a/src/core.cpp
++++ b/src/core.cpp
+@@ -10,5 +10,5 @@
+ int a = 1;
+"""
+    res = await mcp_app.call_tool(
+        "record_review_comments",
+        {
+            "repo": "ufs-community/CATChem",
+            "pr_number": 777,
+            "review_file_path": str(md_path),
+            "diff_text": sample_diff,
+        },
+    )
+    data = json.loads(_tool_text(res))
+    assert data["review_body_path"] is not None
+    body_md = Path(data["review_body_path"]).read_text(encoding="utf-8")
+    assert (
+        "AI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)"
+        in body_md
+    )
+    assert "### Executive Summary" in body_md
+    assert "- **Verdict**: REQUEST CHANGES" in body_md

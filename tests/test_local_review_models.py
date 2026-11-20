@@ -453,3 +453,61 @@ def test_build_pending_review_payload_includes_model_and_vendor() -> None:
     extracted_bullets = parse_review_executive_summary(md)
     assert len(extracted_bullets) == 5
     assert extracted_bullets[0] == "**Verdict**: REQUEST CHANGES"
+
+
+def test_parse_review_executive_summary_edge_cases() -> None:
+    assert parse_review_executive_summary("No executive summary section here.") == []
+
+    md = (
+        "## 1. Executive Summary & Verdict\n"
+        "\n"
+        "Introductory prose line to skip.\n"
+        "- **Change Groups Reviewed**:\n"
+        "  - Group A: Core kernels\n"
+        "  - Group B: Tests\n"
+        "- **Key Risks**:\n"
+        "  - Risk 1\n"
+        "  * Risk 2\n"
+        "- **Overview** summary\n"
+        "  continued on next indented line.\n"
+        "## 2. Next Section\n"
+    )
+    bullets = parse_review_executive_summary(md)
+    assert bullets == [
+        "**Key Risks**: Risk 1; Risk 2",
+        "**Overview** summary continued on next indented line.",
+    ]
+
+
+def test_build_pending_review_payload_model_attribution_and_string_summary() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    comment = [LocalReviewCommentInput(path="a.F90", line=1, body="issue")]
+
+    # model_name only + string executive_summary with heading and bullet prefixes
+    p_name = build_pending_review_payload(
+        comment,
+        mcp_commit_hash=sha,
+        model_name="Gemini",
+        executive_summary="# Ignored Heading\n- First bullet\n* Second bullet\n",
+    )
+    assert p_name.body is not None
+    assert "AI Model & Vendor: Gemini\n" in p_name.body
+    assert "- First bullet\n- Second bullet" in p_name.body
+
+    # model_vendor only
+    p_vendor = build_pending_review_payload(
+        comment,
+        mcp_commit_hash=sha,
+        model_vendor="Google DeepMind",
+    )
+    assert p_vendor.body is not None
+    assert "AI Model & Vendor: Google DeepMind\n" in p_vendor.body
+
+    # thinking_effort only
+    p_effort = build_pending_review_payload(
+        comment,
+        mcp_commit_hash=sha,
+        thinking_effort="High",
+    )
+    assert p_effort.body is not None
+    assert "AI Model & Vendor: Thinking Effort: High\n" in p_effort.body
