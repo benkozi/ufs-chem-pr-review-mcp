@@ -47,6 +47,7 @@ When refreshing reviewer skills and guidelines, inspect and reconcile against al
      - `bash.instructions.md` (**Google Shell Style & EE2**: `#!/bin/bash`, `main "$@"`, `local` vars, `[[ ... ]]`, no backgrounding `&`, ShellCheck)
      - `python.instructions.md` (**Aero Protocol**: Pangeo/Xarray/Dask lazy evaluation, strict typing, log hygiene)
      - `makefile.instructions.md` (**Build Systems**: POSIX makefile, explicit targets, dependency tracking, clean targets)
+     - `cmake.instructions.md` (**CMake / ecbuild / CTest HPC Standards**: target-based usage requirements, Fortran module isolation, imported targets, vendor flag generator expressions, anti-pattern test gating)
      - `code-review-generic.instructions.md` (**Generic Review Standard**: 6-pillar systematic review checklist)
      - `ee2-standards.md` & `ee2-review-gate.md` (**NCO EE2 Compliance**: `FATAL ERROR:` / `WARNING:` prefixes, operational env vars `$DATA`/`$COMROOT`, zero hardcoded paths, portability vs WCOSS routing)
      - `github-actions.md` (**GHA Security & Hygiene**: 3 pillars - script injection prevention, third-party action pinning to full commit SHAs, minimal permissions)
@@ -119,7 +120,7 @@ gh repo clone NOAA-EMC/omd-skills scratch/upstream_omd_skills -- --depth 1 --bra
 
 #### Dual-Mode OMD-Skills Synchronization
 - **Mode 1 (Guideline Mirroring & Distillation — Default)**:
-  Extract language instructions and rule files from `scratch/upstream_omd_skills/skills/ompd/rules/*.instructions.md` into both:
+  Extract language instructions and rule files from `scratch/upstream_omd_skills/.github/instructions/*.md` (and feature branches such as `skill/pr-review-cmake-hpc` when tracking upcoming OMD guidelines) into both:
   - `src/ufs_chem_pr_review_mcp/resources/guidelines/`
   - `.agents/rules/`
 - **Mode 2 (Optional Companion Skill Install)**:

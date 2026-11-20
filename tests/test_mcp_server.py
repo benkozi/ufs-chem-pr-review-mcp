@@ -207,6 +207,7 @@ async def test_resources_and_prompts(mcp_server_fixture: FastMCP) -> None:
     assert "ee2" in categories
     assert "code-review-generic" in categories
     assert "makefile" in categories
+    assert "cmake" in categories
     assert "ee2-review-gate" in categories
     assert "github-actions" in categories
     assert "rdhpcs-hpc" in categories
@@ -238,6 +239,10 @@ async def test_resources_and_prompts(mcp_server_fixture: FastMCP) -> None:
         "ufs-chem://guidelines/makefile"
     )
     assert "Makefile Development Instructions" in _res_text(make_guide)
+
+    cmake_guide = await mcp_server_fixture.read_resource("ufs-chem://guidelines/cmake")
+    assert "CMake and ecbuild Guidelines" in _res_text(cmake_guide)
+    assert "Test Gating" in _res_text(cmake_guide)
 
     ee2_gate_guide = await mcp_server_fixture.read_resource(
         "ufs-chem://guidelines/ee2-review-gate"

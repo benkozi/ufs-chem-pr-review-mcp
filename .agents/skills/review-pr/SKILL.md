@@ -186,6 +186,7 @@ Review large PRs in logical chunks (**Security/Safety â†’ Correctness/Physics â†
    - Bash: `#!/bin/bash`, `set -euo pipefail`, Google style, no backgrounding (`&`), standard exit codes, ShellCheck hygiene.
    - Python: Aero protocol, lazy evaluation, strict typing.
    - Makefiles: Explicit targets, dependency tracking, portable POSIX constructs, clean targets.
+   - CMake / ecbuild / CTest: Target-based usage requirements (no directory-level `include_directories`/`CMAKE_<LANG>_FLAGS` mutation), per-target `Fortran_MODULE_DIRECTORY` isolation, imported targets (`MPI::`, `ESMF::`, `netCDF::`, `Kokkos::`), generator-expression vendor flags, no silent numeric optimizations (`-ffast-math`/`-Ofast`), and zero silent `if(EXISTS ...)` test gating.
    - GitHub Actions: 3-pillar audit (untrusted script injection prevention, 40-char SHA pinning with version comments, least-privilege permissions).
    - RDHPCS & HPC Schedulers: Slurm (`#SBATCH`) / PBS (`#PBS`) directive consistency, module purge/load order, scratch filesystem paths (`$SCRATCH`, `$WORKDIR`).
    - EE2 Portability Routing: Universal `[portable]` compliance (`FATAL ERROR:` / `WARNING:` prefixes, portable exit codes, zero hardcoded host paths); isolate `[WCOSS]` production rules to operational delivery repositories.
@@ -203,7 +204,7 @@ Review large PRs in logical chunks (**Security/Safety â†’ Correctness/Physics â†
    - **Documentation & Breaking Changes**: Public APIs, YAML/namelist config keys, and breaking behavior changes documented accurately; recognize well-written code and strong design choices in the summary.
 5. **Historical Precedents & Guidelines (MCP Server)**:
    - For deeper review precedent search, call `search_review_history` on MCP server `ufs-chem-pr-review`.
-   - For domain guideline deep dives, read resource `ufs-chem://guidelines/{category}` (`fortran`, `cpp`, `bash`, `python`, `makefile`, `code-review-generic`, `chemistry_physics`, `ee2`, `ee2-review-gate`, `github-actions`, `rdhpcs-hpc`, `hpc_libraries`, `ponytail`).
+   - For domain guideline deep dives, read resource `ufs-chem://guidelines/{category}` (`fortran`, `cpp`, `bash`, `python`, `makefile`, `cmake`, `code-review-generic`, `chemistry_physics`, `ee2`, `ee2-review-gate`, `github-actions`, `rdhpcs-hpc`, `hpc_libraries`, `ponytail`).
 6. **External Web & Documentation Checks**:
    - Consult CCPP physics interfaces, ESMF API docs, or third-party libraries via `search_web` if unfamiliar constructs appear.
 7. **Scratch Space & Dependent Application Cross-Analysis**:

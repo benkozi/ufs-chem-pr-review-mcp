@@ -792,6 +792,12 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 upstream_source="NOAA-EMC/omd-skills",
             ),
             GuidelineResourceInfo(
+                category="cmake",
+                uri="ufs-chem://guidelines/cmake",
+                description="OMD CMake, ecbuild, and CTest HPC guidelines: target-based usage requirements, Fortran module isolation, compiler flag hygiene, and anti-pattern test gating.",
+                upstream_source="NOAA-EMC/omd-skills",
+            ),
+            GuidelineResourceInfo(
                 category="ee2-review-gate",
                 uri="ufs-chem://guidelines/ee2-review-gate",
                 description="NCO EE2 20-item review gate and portability routing ([portable] vs [WCOSS]) for operational vs research code.",
@@ -849,6 +855,9 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             "code-review": "code-review-generic.instructions.md",
             "makefile": "makefile.instructions.md",
             "make": "makefile.instructions.md",
+            "cmake": "cmake.instructions.md",
+            "ecbuild": "cmake.instructions.md",
+            "ctest": "cmake.instructions.md",
             "ee2-review-gate": "ee2-review-gate.md",
             "ee2_review_gate": "ee2-review-gate.md",
             "ee2-gate": "ee2-review-gate.md",
