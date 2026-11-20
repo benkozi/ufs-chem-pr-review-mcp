@@ -13,11 +13,15 @@ Local [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server pr
 
 - **Zero Runtime LLM in Server**: The server operates deterministically using SQLite FTS5 lexical/keyword search, AST/regex heuristic matching, and domain rule engines. Structured context is supplied directly to the user's client LLM for synthesis.
 - **Machine-Applicable Patches**: Provides patches formatted for immediate application via `git apply` or 1-click GitHub review ````suggestion ```` blocks.
-- **Atmospheric Chemistry Domain Rules**:
+- **Atmospheric Chemistry & OMD-Skills Domain Rules**:
   - Double-precision constants (`1.0_rk`) enforcement in Fortran computations.
+  - Prevention of exact floating-point equality comparisons (`==`, `/=`, `.eq.`, `.ne.`) in Fortran numerical routines.
   - Verification of molar mass ratio conversions ($M_{spec}/M_{air}$) for ppm/ppb to kg/kg mixing ratios.
   - Mandatory `stat=rc, errmsg=msg` checks on dynamic allocations (`allocate`).
   - Return code validations on ESMF / NUOPC interface calls (`ESMF_SUCCESS`).
+  - Unsafe C buffer and shell execution prevention (`strcpy`, `sprintf`, `system`, `popen`).
+  - GitHub Actions 3-pillar security checks (unquoted untrusted context injection and third-party action SHA pinning).
+  - NCO EE2 mandatory `FATAL ERROR:` prefix enforcement on shell error exits.
 - **Ponytail Over-Engineering Engine**:
   - Flags dead stubs, commented code, and unnecessary custom logic.
   - Respects NUOPC interface dummy variables and OpenMP SIMD loop directives.
@@ -183,17 +187,66 @@ uv run ufs-chem-pr-review-sync \
 - `evaluate_diff`: Analyzes raw unified diff text locally without making external GitHub API calls.
 - `search_review_history`: Performs full-text search (SQLite FTS5) across past review comments with repository, language, and category filters.
 - `get_repo_review_stats`: Returns review metrics, comment volumes, and top category patterns for a repository.
-- `format_review_output`: Formats findings into `markdown`, `patch` (`git apply`), or `github_json` format.
+- `format_review_output`: Formats findings into `markdown`, `patch` (`git apply`), or pending-only `github_json` format (omits `"event"` so it can only ever create a `PENDING` review on GitHub).
 - `generate_patch`: Combines multiple `CodePatch` hunks into a single unified diff patch.
-- `record_review_comments`: Ingests deep-dive code review findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) from parsed review markdown report files or structured objects, ensuring instant retrieval in subsequent reviews with deterministic synthetic IDs and seamless upstream reconciliation.
+- `record_review_comments`: Ingests deep-dive code review findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) from parsed review markdown report files or structured objects, and automatically writes a pending-only `review_payload.json` alongside `review_file_path` for staging draft reviews via `gh api`.
 
 ### Resources
 - `ufs-chem://repositories`: JSON catalog of tracked repositories and branch configurations.
 - `ufs-chem://guidelines`: JSON index listing all available guideline categories and descriptions.
-- `ufs-chem://guidelines/{category}`: Full markdown guidelines and reviewer instructions for specific categories (`fortran`, `cpp`, `bash`, `python`, `ee2`, `hpc-libraries`, `chemistry_physics`, `esmf_nuopc`, `ponytail`).
+- `ufs-chem://guidelines/{category}`: Full markdown guidelines and reviewer instructions returning strongly typed `GuidelineResourceInfo` models. Supports 14 categories (`general`, `fortran`, `cpp`, `bash`, `python`, `makefile`, `code-review-generic`, `chemistry_physics`, `ee2`, `ee2-review-gate`, `github-actions`, `rdhpcs-hpc`, `hpc_libraries`, `ponytail`).
 
 ### Prompts
 - `review_pr`: Prompting template that guides the user's client LLM through an atmospheric chemistry pull request review workflow. See [**`docs/example-prompts.md`**](docs/example-prompts.md) for usage patterns.
+
+---
+
+## Posting Pending Reviews to GitHub (`gh api`)
+
+When `record_review_comments` is called with `review_file_path` (automatically triggered in Phase 8 of the `review-pr` skill), it writes a GitHub REST API payload file named **`review_payload.json`** in the **same directory as the markdown review report**:
+
+```text
+/path/to/review-dir/
+├── <review-name>.md
+└── review_payload.json   <-- Auto-generated pending-only gh api payload
+```
+
+*(You can also override the output location by passing `payload_output_path` to `record_review_comments`, and the exact resolved path is returned in the tool response as `review_payload_path`.)*
+
+### 1. Pending-Only Safety Guarantee
+`GitHubReviewPayload` strictly omits (and forbids via Pydantic `extra="forbid"`) the `"event"` field. In GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` REST API, omitting `"event"` guarantees that the API **only ever creates a `PENDING` draft review** visible only to you in the GitHub UI—it can never publicly submit `APPROVE`, `REQUEST_CHANGES`, or `COMMENT` until you inspect the draft on GitHub and click **Submit review**.
+
+### 2. How to Pass a Write-Capable Token to `gh api`
+Keeping your default `gh auth` session read-only is recommended for normal day-to-day browsing and MCP queries. To stage a pending review on GitHub without modifying your stored `gh auth` login, pass a write-capable token for that single command via the `GH_TOKEN` environment variable:
+
+```bash
+# Recommended: Read a write-scoped PAT from a chmod 600 file (keeps token out of shell history)
+GH_TOKEN="$(< ~/.config/gh/pr_write_token)" gh api \
+  repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+  --method POST \
+  --input /path/to/review-dir/review_payload.json
+
+# Or pass inline for a one-off invocation
+GH_TOKEN="github_pat_..." gh api \
+  repos/<owner>/<repo>/pulls/<pr_number>/reviews \
+  --method POST \
+  --input /path/to/review-dir/review_payload.json
+```
+
+#### Required Token Scopes
+- **Fine-grained Personal Access Token (recommended)**:
+  - **Resource owner**: Target organization or user (e.g., `NOAA-EMC`, `ufs-community`)
+  - **Repository access**: Selected repositories (or All repositories)
+  - **Repository permissions**:
+    - **Pull requests**: `Read and write` *(required to create pending reviews and inline diff comments)*
+    - **Contents**: `Read-only` *(required to resolve commit SHAs and diff blobs)*
+- **Classic Personal Access Token**:
+  - `public_repo` (for public repositories) or `repo` (for private/internal repositories).
+
+> [!NOTE]
+> **One Pending Review per PR Limit & Diff-Hunk Validation**:
+> - GitHub allows at most **one** `PENDING` review per user per PR at a time. If you already have an open pending review on the PR, either submit/discard it in the GitHub **Files changed** tab first, or delete the pending draft via `gh api`.
+> - If `diff_text` is passed to `record_review_comments` (or `build_pending_review_payload`), any finding targeting a file or line range outside the PR's right-side diff hunks is automatically moved into the top-level pending review summary `body` (`### File-Level & Out-of-Diff Findings`) so GitHub never rejects the `POST` with `HTTP 422 (PullRequestReviewComment.line must be part of the diff)`.
 
 ---
 
@@ -209,12 +262,20 @@ The repository includes ready-to-use workspace skills in `.agents/skills/`:
   Runs an autonomous, multi-lens code review of a GitHub PR given its URL, writing the final prioritized review to a specified file.
   - Automatically verifies DB freshness (>24h staleness guard with auto-sync).
   - Always pulls down live inline comments, issue discussions, and unsubmitted pending review drafts.
-  - Critically evaluates prior comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`).
-  - Synthesizes Ponytail over-engineering metrics, NOAA OMD guidelines, and domain physics.
+  - Critically evaluates prior comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`), incorporating EE2 Portability Routing (`[portable]` vs `[WCOSS]`).
+  - Synthesizes Ponytail over-engineering metrics, NOAA OMD / `NOAA-EMC/omd-skills` standards, and atmospheric physics rules.
   - Generates clickable repo line links, 1-click GitHub ````suggestion ```` blocks, and unified diff patches.
   - Supports optional local checkout in scratch space (including dependent applications) via `gh pr checkout` for in-depth whole-codebase and cross-coupling analysis.
   - Immediately ingests generated findings (P0 Blocker, P1 Major, P2 Moderate, P3 Minor) directly into the local SQLite database (`data/ufs_chem_reviews.sqlite3`) via `record_review_comments` for instant precedent retrieval.
   *Usage*: Prompt *"Review https://github.com/ufs-community/CATChem/pull/123 into reviews/pr-123.md"*.
+
+- **`refresh-reviewer-skills`** (`.agents/skills/refresh-reviewer-skills/SKILL.md`):
+  Audits, fetches, and synchronizes the code review skills, editor auto-activation rules, and MCP guideline resources against upstream authoritative sources:
+  - `NOAA-EMC/omd-skills` (via SSH-first shallow clone or `install.sh --agents gemini`)
+  - `github/awesome-copilot` (generic code review and PR review extension guidelines)
+  - NCO EE2 guidelines and RDHPCS scheduler conventions
+  - Historical Copilot and peer review conventions in `data/ufs_chem_reviews.sqlite3`
+  *Usage*: Prompt *"Refresh reviewer skills"* or *"Sync review guidelines against omd-skills"*.
 
 
 ---
@@ -238,12 +299,14 @@ uv run yamllint .
 
 ## Acknowledgements
 
-The code quality definitions, reviewer personas, and high-performance computing guidelines embedded in [`src/ufs_chem_pr_review_mcp/resources/guidelines/`](src/ufs_chem_pr_review_mcp/resources/guidelines/) and [`.agents/rules/`](.agents/rules/) are sourced from the NOAA NWS Office of Modeling and Development (OMD) and NCO HPC Environment Equivalence (EE2) instructions developed by Barry Baker ([@bbakernoaa](https://github.com/bbakernoaa)) in [`bbakernoaa/template-test`](https://github.com/bbakernoaa/template-test/tree/develop/.github/instructions).
+The code quality definitions, reviewer personas, and high-performance computing guidelines embedded in [`src/ufs_chem_pr_review_mcp/resources/guidelines/`](src/ufs_chem_pr_review_mcp/resources/guidelines/) and [`.agents/rules/`](.agents/rules/) are sourced from the NOAA NWS Office of Modeling and Development (OMD) and NCO HPC Environment Equivalence (EE2) instructions developed by Barry Baker ([@bbakernoaa](https://github.com/bbakernoaa)) in [`NOAA-EMC/omd-skills`](https://github.com/NOAA-EMC/omd-skills) and [`bbakernoaa/template-test`](https://github.com/bbakernoaa/template-test), as well as code review practices from [`github/awesome-copilot`](https://github.com/github/awesome-copilot).
 
 These include:
-- **Flux Protocol** ([`fortran.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/fortran.instructions.md)): Modern Fortran (2018+) standards, explicit typing, pure compute kernels, and OpenMP variable scoping.
-- **Forge Protocol** ([`cpp.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/cpp.instructions.md)): Modern C++23 standards, strict RAII, and Fortran column-major memory layout interoperability (`std::mdspan`).
+- **Flux Protocol** ([`fortran.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/fortran.instructions.md)): Modern Fortran (2018+) standards, explicit typing, pure compute kernels, sanitizer checks, and OpenMP variable scoping.
+- **Forge Protocol** ([`cpp.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/cpp.instructions.md)): Modern C++23 standards, strict RAII, memory safety, and Fortran column-major memory layout interoperability (`std::mdspan`).
 - **Aero Protocol** ([`python.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/python.instructions.md)): Python standards for meteorological data processing, Pangeo ecosystem (`xarray`, `dask`), and lazy task graphs.
-- **NCO EE2 Standards** ([`ee2-standards.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/ee2-standards.md)): HPC Environment Equivalence operational production rules and error-handling hierarchies.
-- **HPC Scientific Libraries** ([`hpc-libraries.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/hpc-libraries.md)): ESMF/NUOPC return code validation, ParallelIO (PIO), parallel NetCDF-4, and Zarr.
+- **NCO EE2 Standards & Gate** ([`ee2-standards.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/ee2-standards.md) & [`ee2-review-gate.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/ee2-review-gate.md)): HPC Environment Equivalence operational production rules, portability routing, and error-handling hierarchies.
+- **HPC Scientific Libraries & RDHPCS** ([`hpc-libraries.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/hpc-libraries.md) & [`rdhpcs-hpc.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/rdhpcs-hpc.md)): ESMF/NUOPC return code validation, ParallelIO (PIO), NetCDF-4, Zarr, and Slurm/PBS scheduler directives.
+- **GitHub Actions Security** ([`github-actions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/github-actions.md)): 3-pillar security audit (injection prevention, commit SHA pinning, and least privilege).
+- **Makefiles & Build Systems** ([`makefile.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/makefile.instructions.md)): Portable POSIX makefiles and explicit dependency trees.
 - **Bash Standards** ([`bash.instructions.md`](src/ufs_chem_pr_review_mcp/resources/guidelines/bash.instructions.md)): Google Shell style and EE2 J-Job hierarchy.

@@ -11,8 +11,13 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     RecordedCommentSummary,
     RecordReviewCommentsInput,
     RecordReviewCommentsResponse,
+    build_pending_review_payload,
     generate_synthetic_node_id,
+    get_mcp_server_commit_hash,
+    parse_diff_right_ranges,
+    parse_review_executive_summary,
     parse_review_markdown_findings,
+    parse_review_model_attribution,
 )
 
 
@@ -264,3 +269,245 @@ def test_parse_review_markdown_additional_branches() -> None:
     assert findings[0].path == "nuopc/cap.F90"
     assert findings[0].category == ReviewCategory.ESMF_NUOPC
     assert findings[1].category == ReviewCategory.CORRECTNESS
+
+
+def test_parse_review_markdown_ranges_and_build_pending_payload() -> None:
+    report = """### [P0] Range Finding With Recommended Post Location
+- **Location**: `src/mod.cpp:10-30`
+- **Recommended Post Location**: `src/mod.cpp:12-18`
+- **Tag**: `[memory-safety]`
+
+**[P0]: Range issue**
+
+Fix this range.
+```suggestion
+int x = 0;
+```
+---
+
+### [P2] Unanchored General Finding
+No location bullet here.
+"""
+    findings = parse_review_markdown_findings(report)
+    assert len(findings) == 2
+    assert findings[0].path == "src/mod.cpp"
+    assert findings[0].start_line == 12
+    assert findings[0].line == 18
+    assert "- **Recommended Post Location**:" not in findings[0].body
+    assert not findings[0].body.endswith("---")
+    assert findings[1].path == "unknown"
+    assert findings[1].line is None
+
+    # Test build_pending_review_payload without diff_text
+    payload_no_diff = build_pending_review_payload(findings, commit_id="abc1234")
+    raw_no_diff = payload_no_diff.to_gh_api_json()
+    assert '"event"' not in raw_no_diff
+    assert len(payload_no_diff.comments) == 1
+    assert payload_no_diff.comments[0].start_line == 12
+    assert payload_no_diff.comments[0].line == 18
+    assert payload_no_diff.body is not None
+    assert "File-Level & Out-of-Diff Findings" in payload_no_diff.body
+
+    # Test build_pending_review_payload with diff_text filtering
+    diff_text = """diff --git a/src/mod.cpp b/src/mod.cpp
+--- a/src/mod.cpp
++++ b/src/mod.cpp
+@@ -10,10 +10,12 @@
++int a = 1;
+diff --git a/src/other.cpp b/src/other.cpp
+--- a/src/other.cpp
++++ b/src/other.cpp
+@@ -50 +50 @@
++int b = 2;
+"""
+    ranges = parse_diff_right_ranges(diff_text)
+    assert ranges["src/mod.cpp"] == [(10, 21)]
+    assert ranges["src/other.cpp"] == [(50, 50)]
+
+    extra_comments = [
+        *findings,
+        # Partial range outside hunk start, but end line inside hunk and no suggestion -> attaches to end line
+        LocalReviewCommentInput(
+            path="src/mod.cpp",
+            start_line=2,
+            line=15,
+            body="End line is in hunk",
+        ),
+        # Outside diff hunk completely -> goes to out_of_diff_notes
+        LocalReviewCommentInput(
+            path="src/mod.cpp",
+            start_line=100,
+            line=105,
+            body="Outside diff hunk",
+        ),
+    ]
+    payload_with_diff = build_pending_review_payload(
+        extra_comments, diff_text=diff_text
+    )
+    assert len(payload_with_diff.comments) == 2
+    assert payload_with_diff.comments[0].start_line == 12
+    assert payload_with_diff.comments[0].line == 18
+    assert payload_with_diff.comments[1].start_line is None
+    assert payload_with_diff.comments[1].line == 15
+    assert payload_with_diff.body is not None
+    assert "`src/mod.cpp:100-105`" in payload_with_diff.body
+
+
+def test_get_mcp_server_commit_hash_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def mock_run_nonzero(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["git"], returncode=1, stdout="", stderr="err"
+        )
+
+    monkeypatch.setattr(subprocess, "run", mock_run_nonzero)
+    assert get_mcp_server_commit_hash() == "unknown"
+
+    def mock_run_error(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        raise OSError("git not found")
+
+    monkeypatch.setattr(subprocess, "run", mock_run_error)
+    assert get_mcp_server_commit_hash() == "unknown"
+
+
+def test_build_pending_review_payload_links_commit_hash() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash=sha,
+    )
+    assert payload.body is not None
+    assert (
+        f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [{sha[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{sha})"
+        in payload.body
+    )
+    assert (
+        f"*Note: this comment was made by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [{sha[:8]}](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/{sha})*"
+        in payload.comments[0].body
+    )
+
+    unknown_payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash="unknown",
+    )
+    assert unknown_payload.body is not None
+    assert (
+        "Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown"
+        in unknown_payload.body
+    )
+    assert (
+        "*Note: this comment was made by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ unknown*"
+        in unknown_payload.comments[0].body
+    )
+
+
+def test_build_pending_review_payload_includes_model_and_vendor() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash=sha,
+        model_vendor="Google DeepMind",
+        model_name="Gemini",
+        thinking_effort="Medium",
+        executive_summary=[
+            "**Verdict**: REQUEST CHANGES",
+            "**Findings**: 2 Majors (P1), 2 Moderates (P2), 2 Nits (P3)",
+            "**Key Bug**: Bicubic selective geometry discovery uses k=16 instead of 64 wet cells",
+            "**CI Gating**: Distributed MPI tests lack CTest LABELS",
+            "**Ponytail**: ~76 lines removable across unit test harnesses",
+            "**Extra Bullet 6**: Should be truncated to max 5 bullets",
+        ],
+    )
+    assert payload.body is not None
+    assert (
+        "AI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)"
+        in payload.body
+    )
+    assert "### Executive Summary" in payload.body
+    assert "- **Verdict**: REQUEST CHANGES" in payload.body
+    assert (
+        "- **Ponytail**: ~76 lines removable across unit test harnesses" in payload.body
+    )
+    assert "Extra Bullet 6" not in payload.body
+
+    md = (
+        "## 1. Executive Summary & Verdict\n"
+        "- **Verdict**: REQUEST CHANGES\n"
+        "- **Target Repo & PR**: [NOAA-EMC/HELM#39](https://github.com/NOAA-EMC/HELM/pull/39)\n"
+        "- **Pinned Revision**: `c3f9e75..dbe8592` (120 changed files)\n"
+        "- **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)\n"
+        "- **Lines Removable (Ponytail)**: ~76 lines\n"
+        "- **Findings Summary**: 0 P0, 2 P1, 2 P2, 2 P3\n"
+        "- **High-Level Takeaway**: Core kernels are solid; fix bicubic discovery and Dask serialization.\n"
+        "## 2. Existing PR Review Discussions\n"
+    )
+    assert (
+        parse_review_model_attribution(md)
+        == "Google DeepMind / Gemini (Thinking Effort: Medium)"
+    )
+    extracted_bullets = parse_review_executive_summary(md)
+    assert len(extracted_bullets) == 5
+    assert extracted_bullets[0] == "**Verdict**: REQUEST CHANGES"
+
+
+def test_parse_review_executive_summary_edge_cases() -> None:
+    assert parse_review_executive_summary("No executive summary section here.") == []
+
+    md = (
+        "## 1. Executive Summary & Verdict\n"
+        "\n"
+        "Introductory prose line to skip.\n"
+        "- **Change Groups Reviewed**:\n"
+        "  - Group A: Core kernels\n"
+        "  - Group B: Tests\n"
+        "- **Key Risks**:\n"
+        "  - Risk 1\n"
+        "  * Risk 2\n"
+        "- **Overview** summary\n"
+        "  continued on next indented line.\n"
+        "## 2. Next Section\n"
+    )
+    bullets = parse_review_executive_summary(md)
+    assert bullets == [
+        "**Key Risks**: Risk 1; Risk 2",
+        "**Overview** summary continued on next indented line.",
+    ]
+
+
+def test_build_pending_review_payload_model_attribution_and_string_summary() -> None:
+    sha = "ef332888632dd4d4afa20891a1319da37bfedf0f"
+    comment = [LocalReviewCommentInput(path="a.F90", line=1, body="issue")]
+
+    # model_name only + string executive_summary with heading and bullet prefixes
+    p_name = build_pending_review_payload(
+        comment,
+        mcp_commit_hash=sha,
+        model_name="Gemini",
+        executive_summary="# Ignored Heading\n- First bullet\n* Second bullet\n",
+    )
+    assert p_name.body is not None
+    assert "AI Model & Vendor: Gemini\n" in p_name.body
+    assert "- First bullet\n- Second bullet" in p_name.body
+
+    # model_vendor only
+    p_vendor = build_pending_review_payload(
+        comment,
+        mcp_commit_hash=sha,
+        model_vendor="Google DeepMind",
+    )
+    assert p_vendor.body is not None
+    assert "AI Model & Vendor: Google DeepMind\n" in p_vendor.body
+
+    # thinking_effort only
+    p_effort = build_pending_review_payload(
+        comment,
+        mcp_commit_hash=sha,
+        thinking_effort="High",
+    )
+    assert p_effort.body is not None
+    assert "AI Model & Vendor: Thinking Effort: High\n" in p_effort.body

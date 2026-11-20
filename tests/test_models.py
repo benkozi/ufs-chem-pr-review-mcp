@@ -258,17 +258,32 @@ def test_github_payload_models() -> None:
     comment = GitHubInlineComment(
         path="src/file.F90",
         line=25,
+        start_line=20,
+        start_side="RIGHT",
         side="RIGHT",
         body="Consider replacing with double precision constant.",
         suggested_change="1.0_rk",
     )
     payload = GitHubReviewPayload(
-        event=ReviewEvent.COMMENT,
+        commit_id="deadbeef",
         body="Critical Summary...",
         comments=[comment],
     )
     assert payload.comments[0].suggested_change == "1.0_rk"
-    assert payload.event == ReviewEvent.COMMENT
+    assert payload.commit_id == "deadbeef"
+    dumped = payload.to_gh_api_json()
+    assert '"event"' not in dumped
+    assert '"suggested_change"' not in dumped
+    assert '"start_line": 20' in dumped
+    assert '"commit_id": "deadbeef"' in dumped
+
+    # Passing event must be rejected by extra="forbid" so payload is strictly pending-only
+    with pytest.raises(ValidationError):
+        GitHubReviewPayload(
+            event=ReviewEvent.COMMENT,  # type: ignore[call-arg]
+            body="Critical Summary...",
+            comments=[comment],
+        )
 
 
 def test_github_inline_comment_rendered_body() -> None:
@@ -282,6 +297,16 @@ def test_github_inline_comment_rendered_body() -> None:
     rendered = c1.rendered_body()
     assert "Use double precision." in rendered
     assert "```suggestion\nx = 1.0_rk\n```" in rendered
+
+    # Calling rendered_body when suggestion block is already embedded does not duplicate it
+    c1_dup = GitHubInlineComment(
+        path="src/file.F90",
+        line=10,
+        side="RIGHT",
+        body=rendered,
+        suggested_change="x = 1.0_rk",
+    )
+    assert c1_dup.rendered_body().count("```suggestion") == 1
 
     c2 = GitHubInlineComment(
         path="src/file.F90",

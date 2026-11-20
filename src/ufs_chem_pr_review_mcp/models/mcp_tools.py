@@ -13,6 +13,26 @@ from ufs_chem_pr_review_mcp.models.patch import CodePatch
 from ufs_chem_pr_review_mcp.models.review import ReviewCommentRecord
 
 
+class GuidelineResourceInfo(BaseModel):
+    """Metadata describing an available MCP coding or review guideline resource."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    category: str = Field(
+        description="Short identifier slug for the guideline category (e.g., 'fortran', 'ee2-review-gate', 'github-actions')."
+    )
+    uri: str = Field(
+        description="Full MCP resource URI (e.g., 'ufs-chem://guidelines/fortran')."
+    )
+    description: str = Field(
+        description="Concise summary of the standards, rules, and target files covered by this guideline."
+    )
+    upstream_source: str = Field(
+        default="NOAA-EMC/omd-skills",
+        description="Authoritative upstream repository or specification from which this guideline is synchronized.",
+    )
+
+
 class BaseEvaluateInput(BaseModel):
     """Base schema for evaluation options shared across diff and PR evaluators."""
 

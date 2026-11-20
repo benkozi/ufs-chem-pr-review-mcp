@@ -73,11 +73,16 @@ flowchart TD
   - `stdlib`: Detects re-implementations of standard mathematical or string operations.
   - `shrink`: Recommends Fortran array slice notation (`arr(:) = 0.0`) over explicit 1D scalar loops.
   - **Exemptions**: Explicitly ignores standard NUOPC interface dummy variables (`rc`, `clock`, `gcomp`) and OpenMP SIMD multi-index compute loops.
-- **UFS-Chem Domain Rules** ([`rules/ufs_chem.py`](file:///Users/bkoziol/sandbox/git-benkozi/ufs-chem-pr-review-mcp/src/ufs_chem_pr_review_mcp/rules/ufs_chem.py)):
+- **UFS-Chem Domain & OMD-Skills Rules** ([`rules/ufs_chem.py`](file:///Users/bkoziol/sandbox/git-benkozi/ufs-chem-pr-review-mcp/src/ufs_chem_pr_review_mcp/rules/ufs_chem.py)):
   - `single_precision_literal`: Flags real constants without double-precision kind suffixes (e.g. `1.0` -> `1.0_rk`).
   - `missing_allocate_stat`: Requires `stat=rc, errmsg=msg` on all Fortran `allocate()` calls.
   - `missing_esmf_return_code_check`: Warns when calling ESMF routines (`ESMF_StateGet`, etc.) without checking `rc == ESMF_SUCCESS`.
   - `chemistry_unit_molecular_weight`: Enforces molar mass scaling ($M_{spec}/M_{air}$) on volume-mixing-ratio to mass-mixing-ratio conversions (ppm/ppb $\to$ kg/kg).
+  - `gha_untrusted_script_injection`: Flags GitHub Actions inline `run: |` blocks directly interpolating untrusted GitHub context expressions (`${{ github.event.* }}`, `${{ github.head_ref }}`).
+  - `gha_unpinned_third_party_action`: Enforces full 40-character commit SHA pinning on third-party GitHub Actions (`uses: owner/repo@<sha>`).
+  - `fortran_exact_float_equality`: Flags exact floating-point equality comparisons (`==`, `/=`, `.eq.`, `.ne.`) prone to round-off issues.
+  - `c_unsafe_buffer_or_shell_call`: Identifies unsafe C functions (`strcpy`, `strcat`, `sprintf`, `vsprintf`, `gets`, `system`, `popen`) susceptible to buffer overflows or injection.
+  - `ee2_missing_fatal_error_prefix`: Catches shell script error exits calling `exit 1` without emitting the standard NCO EE2 `FATAL ERROR:` diagnostic prefix.
 
 ### 3.3 Patch Engine
 - **Patch Architecture** ([`models/patch.py`](file:///Users/bkoziol/sandbox/git-benkozi/ufs-chem-pr-review-mcp/src/ufs_chem_pr_review_mcp/models/patch.py)):
@@ -102,7 +107,7 @@ flowchart TD
 
 ### Resources
 - `ufs-chem://repositories`: JSON catalog of tracked atmospheric chemistry repositories.
-- `ufs-chem://guidelines/{category}`: Contextual review guidelines and common reviewer pitfalls for specified categories.
+- `ufs-chem://guidelines/{category}`: Contextual review guidelines and rules returning strongly typed `GuidelineResourceInfo` payloads. Supports 14 categories (`general`, `fortran`, `cpp`, `bash`, `python`, `makefile`, `code-review-generic`, `chemistry_physics`, `ee2`, `ee2-review-gate`, `github-actions`, `rdhpcs-hpc`, `hpc_libraries`, `ponytail`).
 
 ### Prompts
 - `review_pr`: Structured prompting template guiding the user's client LLM to conduct a rigorous review using `evaluate_pr`.
@@ -111,7 +116,7 @@ flowchart TD
 
 ## 5. Antigravity Workspace Skills
 
-The repository exposes two automated Antigravity workspace skills in `.agents/skills/`:
+The repository exposes three automated Antigravity workspace skills in `.agents/skills/`:
 
 ### 5.1 `refresh-review-db`
 - **Location**: `.agents/skills/refresh-review-db/SKILL.md`
@@ -124,12 +129,20 @@ The repository exposes two automated Antigravity workspace skills in `.agents/sk
 - **Runbook Pipeline**:
   1. *Phase 0 (Auto-Freshness Guard)*: Checks local database staleness (>24 hours) for target repository; auto-syncs incrementally if needed.
   2. *Phase 1 (Input Validation)*: Validates PR URL, optional scratch space path, and creates target output directories.
-  3. *Phase 2 (Ingestion)*: Pulls live diff, existing inline comments, conversation threads, and pending review drafts (`state == "PENDING"`) via `evaluate_pr`.
+  3. *Phase 2 (Ingestion & GHA 3-Pillar Audit)*: Pulls live diff, existing inline comments, conversation threads, and pending review drafts (`state == "PENDING"`) via `evaluate_pr`. Audits `.github/workflows/*` against the 3 pillars (injection prevention, 40-char SHA pinning, minimal permissions).
   4. *Phase 2b (Local Scratch & Dependent Apps)*: Optional checkout of the PR locally in scratch space via `gh pr checkout` alongside dependent applications (e.g., `CATChem`, `CECE`, `HELM`) for deep whole-repo callsite and coupling analysis.
-  5. *Phase 3 (Validity & Reconciliation)*: Evaluates existing comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`) against code logic and domain physics; amplifies user draft comments; eliminates duplicate noise.
-  6. *Phase 4 (Multi-Lens Audit)*: Audits against Ponytail over-engineering metrics, NOAA OMD standards (Flux Fortran, Forge C++, Aero Python), chemistry physics rules, and whole-repo/cross-component scratch space analysis.
+  5. *Phase 3 (Validity & EE2 Portability Routing)*: Evaluates existing comment validity (`[VALID]`, `[INVALID / FALSE POSITIVE]`, `[OUTDATED]`, `[PARTIALLY VALID]`) against code logic and domain physics; separates universal `[portable]` EE2 requirements from production-only `[WCOSS]` requirements (debunking WCOSS comments on research PRs); amplifies user draft comments; eliminates duplicate noise.
+  6. *Phase 4 (Multi-Lens Audit & OMD-Skills)*: Audits against Ponytail over-engineering metrics, NOAA OMD standards (Flux Fortran with sanitizers, Forge C++ with RAII/ASan, Aero Python, ShellCheck Bash, Slurm/PBS schedulers), chemistry physics rules, and whole-repo/cross-component scratch space analysis.
   7. *Phase 5 & 6 (Prioritization & Patches)*: Ranks issues from P0 to P3 with clickable repository file links, GitHub 1-click ````suggestion ```` blocks, and validated unified diff patches.
   8. *Phase 7 (Generation)*: Writes formatted review artifact directly to target path and reports executive verdict.
   9. *Phase 8 (Immediate Ingestion)*: Persists all prioritized review findings directly into `data/ufs_chem_reviews.sqlite3` via `record_review_comments`, making them instantly searchable and available as future precedents.
+
+### 5.3 `refresh-reviewer-skills`
+- **Location**: `.agents/skills/refresh-reviewer-skills/SKILL.md`
+- **Functionality**: Synchronizes the repository review skill (`review-pr`), editor auto-activation rules (`.agents/rules/`), and MCP guideline resources (`src/ufs_chem_pr_review_mcp/resources/guidelines/`) against upstream sources:
+  - `NOAA-EMC/omd-skills` (via fast SSH-first shallow clone or `install.sh --agents gemini`)
+  - `github/awesome-copilot` (generic code review and PR review extension guidelines)
+  - NCO EE2 guidelines and RDHPCS scheduler conventions
+  - Historical Copilot and peer review conventions in `data/ufs_chem_reviews.sqlite3`
 
 

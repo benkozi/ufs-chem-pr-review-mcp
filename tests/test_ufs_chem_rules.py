@@ -192,3 +192,112 @@ def test_omd_python_lazy_breaker() -> None:
     assert len(breakers) == 2
     assert breakers[0].category == ReviewCategory.CONCURRENCY_HPC
     assert "Aero Protocol" in breakers[0].explanation
+
+
+def test_gha_untrusted_script_injection() -> None:
+    # Trigger on direct interpolation in run:
+    bad_diff = """@@ -15,3 +15,9 @@
++    - name: Print Title
++      run: echo "Title is ${{ github.event.pull_request.title }}"
++    - name: Checkout Head
++      run: git checkout ${{ github.head_ref }}
++    - name: Multiline Run
++      run: |
++        echo "Processing ${{ github.event.issue.body }}"
+"""
+    findings_bad = evaluate_ufs_chem_rules(
+        ".github/workflows/ci.yml", bad_diff, SupportedLanguage.SHELL
+    )
+    injections = [
+        f for f in findings_bad if f.rule_name == "gha_untrusted_script_injection"
+    ]
+    assert len(injections) == 3
+    assert injections[0].criticality == 5
+    assert injections[0].category == ReviewCategory.CORRECTNESS
+    assert "intermediate env:" in injections[0].explanation.lower()
+
+    # Should NOT trigger when ${{ }} is in env: block
+    safe_diff = """@@ -20,4 +20,7 @@
++    - name: Safe Step
++      env:
++        PR_TITLE: ${{ github.event.pull_request.title }}
++      run: echo "$PR_TITLE"
+"""
+    findings_safe = evaluate_ufs_chem_rules(
+        ".github/workflows/ci.yml", safe_diff, SupportedLanguage.SHELL
+    )
+    assert not any(
+        f.rule_name == "gha_untrusted_script_injection" for f in findings_safe
+    )
+
+
+def test_gha_unpinned_third_party_action() -> None:
+    diff_hunk = """@@ -10,4 +10,8 @@
++    - uses: actions/checkout@v4
++    - uses: softprops/action-gh-release@v1
++    - uses: codecov/codecov-action@v3
++    - uses: pre-commit/action@646c83fcd040023954eafda54b373a9cb768947a # v3.0.0
+"""
+    findings = evaluate_ufs_chem_rules(
+        ".github/workflows/release.yml", diff_hunk, SupportedLanguage.SHELL
+    )
+    unpinned = [f for f in findings if f.rule_name == "gha_unpinned_third_party_action"]
+    assert len(unpinned) == 2
+    assert unpinned[0].criticality == 4
+    assert unpinned[0].category == ReviewCategory.BUILD_PACKAGING
+    assert "softprops/action-gh-release" in unpinned[0].explanation
+    assert "codecov/codecov-action" in unpinned[1].explanation
+
+
+def test_fortran_exact_float_equality() -> None:
+    diff_hunk = """@@ -40,4 +40,7 @@
++  if (residual == 0.0_rk) exit
++  if (val .eq. 0.0) return
++  if (diff /= 0.0d0) then
++  if (counter == 0) continue
+"""
+    findings = evaluate_ufs_chem_rules(
+        "chem/solver.F90", diff_hunk, SupportedLanguage.FORTRAN
+    )
+    exact_floats = [
+        f for f in findings if f.rule_name == "fortran_exact_float_equality"
+    ]
+    assert len(exact_floats) == 3
+    assert exact_floats[0].criticality == 4
+    assert exact_floats[0].category == ReviewCategory.CHEMISTRY_PHYSICS
+    assert "tolerance" in exact_floats[0].explanation.lower()
+
+
+def test_c_unsafe_buffer_or_shell_call() -> None:
+    diff_hunk = """@@ -25,4 +25,7 @@
++  strcpy(dest, src);
++  sprintf(buf, "%s", name);
++  gets(input);
++  snprintf(safe_buf, sizeof(safe_buf), "%s", name);
+"""
+    findings = evaluate_ufs_chem_rules("src/util.c", diff_hunk, SupportedLanguage.C)
+    unsafe_calls = [
+        f for f in findings if f.rule_name == "c_unsafe_buffer_or_shell_call"
+    ]
+    assert len(unsafe_calls) == 3
+    assert unsafe_calls[0].criticality == 5
+    assert unsafe_calls[0].category == ReviewCategory.CORRECTNESS
+    assert "strcpy" in unsafe_calls[0].explanation
+
+
+def test_ee2_missing_fatal_error_prefix() -> None:
+    diff_hunk = """@@ -12,3 +12,6 @@
++  echo "ERROR: Missing GFS meteorological file"
++  printf 'Fatal: input data corrupted\n'
++  echo "FATAL ERROR: Missing grid geometry file"
+"""
+    findings = evaluate_ufs_chem_rules(
+        "scripts/ex_driver.sh", diff_hunk, SupportedLanguage.SHELL
+    )
+    missing_prefix = [
+        f for f in findings if f.rule_name == "ee2_missing_fatal_error_prefix"
+    ]
+    assert len(missing_prefix) == 2
+    assert missing_prefix[0].criticality == 3
+    assert missing_prefix[0].category == ReviewCategory.STYLE_DOCS
+    assert "FATAL ERROR:" in missing_prefix[0].explanation

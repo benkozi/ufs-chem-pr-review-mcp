@@ -32,6 +32,22 @@ HARDCODED_PATH_RE = re.compile(
 )
 PY_LAZY_BREAKER_RE = re.compile(r"^\+.*?\.(?:compute|load)\s*\(\s*\)")
 
+# New OMD-Skills Rules (GitHub Actions, Fortran Floats, C Unsafe, EE2 Prefixes)
+GHA_INJECTION_SINK_RE = re.compile(
+    r"\$\{\{\s*github\.(?:event\.(?:issue|pull_request|comment|review|head_commit|commits)\b|head_ref\b)",
+    re.IGNORECASE,
+)
+GHA_USES_RE = re.compile(r"^\+\s*-\s*uses:\s*([^@\s]+)@([^\s#]+)")
+FORTRAN_EXACT_FLOAT_RE = re.compile(
+    r"^\+\s*if\s*\([^)]*?(?:==|\.eq\.|/=|\.ne\.)\s*0\.0(?:_[a-zA-Z0-9_]+|[dDeE][+-]?\d+)?\b|^\+\s*if\s*\([^)]*?0\.0(?:_[a-zA-Z0-9_]+|[dDeE][+-]?\d+)?\s*(?:==|\.eq\.|/=|\.ne\.)",
+    re.IGNORECASE,
+)
+C_UNSAFE_BUFFER_RE = re.compile(r"^\+.*?\b(strcpy|strcat|sprintf|vsprintf|gets)\s*\(")
+EE2_MISSING_FATAL_RE = re.compile(
+    r"^\+.*?\b(?:echo|printf)\s+[\"']\s*(?:ERROR|Error|FATAL|Fatal)\b(?!\s*ERROR:)",
+    re.IGNORECASE,
+)
+
 
 def evaluate_ufs_chem_rules(
     file_path: str,
@@ -41,6 +57,12 @@ def evaluate_ufs_chem_rules(
     """Evaluate UFS atmospheric chemistry and OMD/EE2 domain rules on diff additions."""
     findings: list[DomainFinding] = []
     lines = diff_hunk.splitlines()
+
+    is_workflow_file = any(
+        part in file_path.replace("\\", "/")
+        for part in [".github/workflows", ".github/actions"]
+    )
+    in_run_block = False
 
     current_line = 1
 
@@ -53,6 +75,18 @@ def evaluate_ufs_chem_rules(
 
         if line.startswith("+"):
             content = line[1:]
+
+            if is_workflow_file:
+                trimmed = content.strip()
+                if trimmed.startswith("run:"):
+                    if trimmed in ("run:", "run: |", "run: >"):
+                        in_run_block = True
+                    else:
+                        in_run_block = False
+                elif trimmed.startswith(
+                    ("- ", "env:", "uses:", "with:", "name:", "id:", "if:")
+                ):
+                    in_run_block = False
 
             # 1. Fortran single-precision literal
             if language == SupportedLanguage.FORTRAN:
@@ -311,6 +345,104 @@ def evaluate_ufs_chem_rules(
                             category=ReviewCategory.CONCURRENCY_HPC,
                             criticality=3,
                             explanation="Direct .compute()/.load() call inside data processing function breaks Dask laziness and risks node OOM. OMD Python standards (Aero Protocol) require preserving lazy execution.",
+                            original_code=content.strip(),
+                            replacement_code=None,
+                            patch=None,
+                        )
+                    )
+
+            # 13. GitHub Actions untrusted script injection
+            if is_workflow_file:
+                if (in_run_block or "run:" in content) and "env:" not in content:
+                    if GHA_INJECTION_SINK_RE.search(content):
+                        findings.append(
+                            DomainFinding(
+                                file_path=file_path,
+                                line_number=current_line,
+                                rule_name="gha_untrusted_script_injection",
+                                category=ReviewCategory.CORRECTNESS,
+                                criticality=5,
+                                explanation="Untrusted GitHub Actions context '${{ ... }}' interpolated directly inside script run block. Sinks such as issue/PR titles or branch names allow arbitrary code injection. Pass via intermediate env: variable instead.",
+                                original_code=content.strip(),
+                                replacement_code=None,
+                                patch=None,
+                            )
+                        )
+
+            # 14. GitHub Actions unpinned third-party action
+            if is_workflow_file:
+                m_uses = GHA_USES_RE.search(line)
+                if m_uses:
+                    action_name = m_uses.group(1).strip()
+                    ref = m_uses.group(2).strip()
+                    is_first_party = action_name.startswith(
+                        ("actions/", "github/", "docker://", "./", "../")
+                    )
+                    is_sha = bool(re.match(r"^[0-9a-fA-F]{40}$", ref))
+                    if not is_first_party and not is_sha:
+                        findings.append(
+                            DomainFinding(
+                                file_path=file_path,
+                                line_number=current_line,
+                                rule_name="gha_unpinned_third_party_action",
+                                category=ReviewCategory.BUILD_PACKAGING,
+                                criticality=4,
+                                explanation=f"Third-party action '{action_name}' is referenced by mutable tag/branch '@{ref}'. OMD GitHub Actions standards mandate pinning third-party actions to a full 40-character commit SHA with a version comment.",
+                                original_code=content.strip(),
+                                replacement_code=None,
+                                patch=None,
+                            )
+                        )
+
+            # 15. Fortran exact floating-point equality
+            if language == SupportedLanguage.FORTRAN:
+                if FORTRAN_EXACT_FLOAT_RE.search(line):
+                    findings.append(
+                        DomainFinding(
+                            file_path=file_path,
+                            line_number=current_line,
+                            rule_name="fortran_exact_float_equality",
+                            category=ReviewCategory.CHEMISTRY_PHYSICS,
+                            criticality=4,
+                            explanation="Exact floating-point equality/inequality comparison (== 0.0 or /= 0.0) in numerical logic. Due to rounding errors, compiler optimizations, and reduction order differences across ranks, exact equality is non-portable. Compare using an explicit absolute/relative tolerance (e.g. abs(val) <= tol).",
+                            original_code=content.strip(),
+                            replacement_code=None,
+                            patch=None,
+                        )
+                    )
+
+            # 16. C / C++ unsafe string / buffer calls
+            if language in (SupportedLanguage.C, SupportedLanguage.CPP):
+                m_unsafe = C_UNSAFE_BUFFER_RE.search(line)
+                if m_unsafe:
+                    fn_name = m_unsafe.group(1)
+                    findings.append(
+                        DomainFinding(
+                            file_path=file_path,
+                            line_number=current_line,
+                            rule_name="c_unsafe_buffer_or_shell_call",
+                            category=ReviewCategory.CORRECTNESS,
+                            criticality=5,
+                            explanation=f"Unsafe C string function '{fn_name}' detected. OMD standards prohibit unbounded buffer copies; use snprintf with size validation or C++ RAII string types.",
+                            original_code=content.strip(),
+                            replacement_code=None,
+                            patch=None,
+                        )
+                    )
+
+            # 17. EE2 missing FATAL ERROR: prefix
+            if language == SupportedLanguage.SHELL or file_path.endswith(
+                (".sh", ".bash")
+            ):
+                if EE2_MISSING_FATAL_RE.search(line):
+                    findings.append(
+                        DomainFinding(
+                            file_path=file_path,
+                            line_number=current_line,
+                            rule_name="ee2_missing_fatal_error_prefix",
+                            category=ReviewCategory.STYLE_DOCS,
+                            criticality=3,
+                            explanation="Error message lacks mandatory NCO EE2 prefix. EE2 [portable] standards require fatal errors to begin with 'FATAL ERROR:' and non-fatal warnings with 'WARNING:'.",
                             original_code=content.strip(),
                             replacement_code=None,
                             patch=None,

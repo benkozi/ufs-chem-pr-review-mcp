@@ -28,7 +28,7 @@ Code must adhere strictly to the NCO multi-tiered scripting architecture. Variab
 * **Job Cards (ecFlow scripts):** Submits the job to the scheduler (PBS/Slurm). Loads required modules and sets root environment variables (`$envir`, `$OPSROOT`). Calls the J-Job.
 * **J-Jobs (`jobs/` directory):**
   * **Naming:** Must follow the convention `JAAAAA` (Capital `J` followed by all caps, no file extension).
-  * Purpose: Sets up location variables (`$DATA`, `$COMIN`, `$COMOUT`, `$EXECmodel`, etc.) and temporal variables (`$PDY`, `$cycle`), initializes the working directory, and calls the ex-script.
+  * **Purpose:** Sets up location variables (`$DATA`, `$COMIN`, `$COMOUT`, `$EXECmodel`, etc.) and temporal variables (`$PDY`, `$cycle`), initializes the working directory, and calls the ex-script.
   * **Strict Rule:** Variables established in the J-Job must *never* be altered by downstream scripts. Keep the J-Job clutter-free (do not define unused variables).
 * **Ex-Scripts (`scripts/` directory):** The primary execution layer for a specific task. Called by the J-Job.
 * **Ush-Scripts (`ush/` directory):** Utility scripts called by ex-scripts to handle repeated specific tasks.
