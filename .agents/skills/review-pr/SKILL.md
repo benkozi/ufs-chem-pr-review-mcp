@@ -290,7 +290,7 @@ For every finding:
 1. Write the complete, formatted report directly to the target file path using `write_to_file` / `write_file`.
 2. Present a concise confirmation response to the user:
    - Executive verdict (APPROVE / REQUEST CHANGES / COMMENT).
-   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` with **at most 5 bullets**, and `### Updated Submodule CI Status` markdown table whenever the PR updates any submodule hashes).
+   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` opening with a positive Overview of **at most 5 sentences** summarizing what the PR does and highlighting its strengths before the verdict, with **at most 5 bullets** total, and `### Updated Submodule CI Status` markdown table whenever the PR updates any submodule hashes).
    - CI check status, updated submodule CI status summary (if any), & false-confidence analysis (why checks passed despite issues).
    - Validity breakdown of existing peer comments (valid, invalid, resolved).
    - Status of pending review drafts (incorporated items).
@@ -315,11 +315,11 @@ Immediately after generating the review report, the agent automatically persists
        "model_name": "<ai_model_name>",
        "thinking_effort": "<thinking_effort_level>",
        "executive_summary": [
-         "<Bullet 1: Verdict & scope>",
-         "<Bullet 2: Primary P0/P1 findings>",
+         "<Bullet 1: Overview (max 5 sentences) — what the PR does and its key strengths, opening on a constructive, positive note before the verdict>",
+         "<Bullet 2: Verdict & primary P0/P1 findings>",
          "<Bullet 3: Secondary findings / Ponytail simplifications>",
          "<Bullet 4: CI & test gating assessment>",
-         "<Bullet 5: Strengths & overall takeaway>"
+         "<Bullet 5: Overall takeaway & next steps>"
        ],
        "submodule_ci_report": "<optional compact markdown table of recursively checked updated submodule CI statuses; auto-extracted from Section 3 '### Updated Submodule CI Status' if omitted>"
      }
@@ -388,6 +388,10 @@ The generated markdown document MUST adhere to this structure:
 # Pull Request Review: [<owner>/<repo>#<pr_number>] - <pr_title>
 
 ## 1. Executive Summary & Verdict
+
+### Overview
+<At most 5 sentences summarizing what the PR accomplishes and highlighting its key strengths (e.g., clean design, simplification, hardening, or test coverage). Open the review on a constructive, positive note before presenting the verdict.>
+
 - **Verdict**: [APPROVE | REQUEST CHANGES | COMMENT]
 - **Target Repo & PR**: [<owner>/<repo>#<pr_number>](https://github.com/<owner>/<repo>/pull/<pr_number>)
 - **Pinned Revision**: `<base_sha_short>..<head_sha_short>` (<N> changed files across <M> logical groups)
