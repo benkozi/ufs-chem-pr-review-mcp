@@ -290,7 +290,7 @@ For every finding:
 1. Write the complete, formatted report directly to the target file path using `write_to_file` / `write_file`.
 2. Present a concise confirmation response to the user:
    - Executive verdict (APPROVE / REQUEST CHANGES / COMMENT).
-   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` opening with a `#### Overview` **prose paragraph (never a bullet)** of **at most 5 sentences** summarizing what the PR does and highlighting its strengths before the verdict, followed by **at most 5 bullets** for the verdict/findings/CI summary, and `### Updated Submodule CI Status` markdown table whenever the PR updates any submodule hashes).
+   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` opening with a `#### Overview` **prose paragraph (never a bullet)** of **at most 5 sentences** summarizing what the PR does and highlighting its strengths before the verdict, followed by **at most 5 bullets** for the verdict/findings/CI summary, and an explicit collapsible `### Updated Submodule CI Status` section — showing the recursive submodule CI table when submodules are updated, or `No submodules present or updated.` otherwise).
    - CI check status, updated submodule CI status summary (if any), & false-confidence analysis (why checks passed despite issues).
    - Validity breakdown of existing peer comments (valid, invalid, resolved).
    - Status of pending review drafts (incorporated items).
@@ -329,8 +329,8 @@ Immediately after generating the review report, the agent automatically persists
 2. **Under the Hood Execution**:
    - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
    - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).
-   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor/thinking-effort attribution + `### Executive Summary` with `#### Overview` prose paragraph and max 5 bullets + optional `### Updated Submodule CI Status` markdown table + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
-   - **Machine-Generated Provenance, AI Model/Thinking Effort, Executive Summary & Submodule CI Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header, the AI model + vendor + thinking effort used for the review, the Executive Summary (`#### Overview` as a **non-bullet prose paragraph** of at most 5 sentences, followed by **at most 5 bullets**), and—whenever the PR updates submodule hashes—the compact `### Updated Submodule CI Status` table:
+   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor/thinking-effort attribution + `### Executive Summary` with `#### Overview` prose paragraph and max 5 bullets + explicit collapsible `### Updated Submodule CI Status` `<details>` section + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
+   - **Machine-Generated Provenance, AI Model/Thinking Effort, Executive Summary & Submodule CI Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header, the AI model + vendor + thinking effort used for the review, the Executive Summary (`#### Overview` as a **non-bullet prose paragraph** of at most 5 sentences, followed by **at most 5 bullets**), and an explicit collapsible `### Updated Submodule CI Status` `<details>` section (always included; states `No submodules present or updated.` when none are present or updated):
      ```markdown
      Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [<short_hash>](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/<current hash of the mcp server>)
      AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)
@@ -349,12 +349,18 @@ Immediately after generating the review report, the agent automatically persists
      - <Bullet 5>
 
      ### Updated Submodule CI Status
+
+     <details>
+     <summary><b>Submodule CI Status Report</b></summary>
+
      | Submodule (Depth) | Repo | Hash Update | CI Running? | CI Status Summary |
      | :--- | :--- | :--- | :--- | :--- |
      | `src/cece` (L1) | `ufs-community/CECE` | `1a2b3c4..9f8e7d6` | Yes (`2` running) | `RUNNING` — 2 in progress, 3 passed |
      | `src/cece/extern/helm` (L2) | `NOAA-EMC/HELM` | `abc1234..def5678` | No | `PASSED` — 4/4 checks passed |
+
+     </details>
      ```
-     *(Omit `### Updated Submodule CI Status` from `review_payload_body.md` if the PR does not update any submodule hashes.)*
+     *(When the PR does not contain or update any submodule hashes, always include the collapsible block with `<summary><b>Submodule CI Status Report</b> (No submodules present or updated)</summary>` and body `No submodules present or updated.` Similarly, always include `### File-Level & Out-of-Diff Findings` — when there are none, include `<details><summary><b>File-Level &amp; Out-of-Diff Findings</b> (No file-level or out-of-diff findings)</summary>` with body `No file-level or out-of-diff findings.`)*
      (where `<current hash of the mcp server>` is dynamically resolved from `git rev-parse HEAD` of the MCP repository, `<vendor> / <model_name> (Thinking Effort: <thinking_effort>)` identifies the human-readable AI vendor, model, and thinking effort level used for the review, and `### Executive Summary` contains at most 5 concise bullets summarizing the review).
    - **Pending-Only Safety Guarantee**: `GitHubReviewPayload` strictly omits (and forbids) the `"event"` field. Because GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` API sets a review to `PENDING` whenever `"event"` is omitted, `review_payload.json` can **only ever create a private `PENDING` draft review** on GitHub—it can never publicly submit `COMMENT`, `REQUEST_CHANGES`, or `APPROVE`.
 3. **Posting the Pending Review to GitHub via `gh api`**:
@@ -424,7 +430,7 @@ The generated markdown document MUST adhere to this structure:
 - **False Confidence / Gating Explanation**: <Detailed analysis explaining why passing CI did not exercise latent defects>
 
 ### Updated Submodule CI Status
-*(Include whenever the PR updates one or more git submodule hashes; recursively list nested updated submodules. If no submodules were updated, state `No updated submodules in this PR.`)*
+*(Always include. Recursively list updated git submodule hashes; if none are present or updated, state `No submodules present or updated.`)*
 
 | Submodule (Depth) | Repo | Hash Update | CI Running? | CI Status Summary |
 | :--- | :--- | :--- | :--- | :--- |

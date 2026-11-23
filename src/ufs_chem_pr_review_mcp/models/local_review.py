@@ -524,7 +524,9 @@ def parse_review_submodule_ci_status(markdown_text: str) -> str | None:
     if not body:
         return None
     if "|" not in body and re.search(
-        r"\b(?:no\s+updated\s+submodules|none)\b", body, re.IGNORECASE
+        r"\b(?:no\s+(?:updated\s+)?submodules(?:\s+present(?:\s+or\s+updated)?)?|none)\b",
+        body,
+        re.IGNORECASE,
     ):
         return None
     return body
@@ -703,6 +705,7 @@ def build_pending_review_payload(
         if exec_bullets:
             exec_sections.append("\n".join(f"- {b}" for b in exec_bullets))
         summary_parts.append("### Executive Summary\n\n" + "\n\n".join(exec_sections))
+    cleaned_sub = ""
     if submodule_ci_report and submodule_ci_report.strip():
         cleaned_sub = re.sub(
             r"^###\s+Updated\s+Submodule\s+CI\s+Status\b[^\n]*\n+",
@@ -710,12 +713,34 @@ def build_pending_review_payload(
             submodule_ci_report.strip(),
             flags=re.IGNORECASE,
         ).strip()
-        if cleaned_sub:
-            summary_parts.append(f"### Updated Submodule CI Status\n\n{cleaned_sub}")
+    if cleaned_sub:
+        summary_parts.append(
+            "### Updated Submodule CI Status\n\n"
+            "<details>\n"
+            "<summary><b>Submodule CI Status Report</b></summary>\n\n"
+            f"{cleaned_sub}\n\n"
+            "</details>"
+        )
+    else:
+        summary_parts.append(
+            "### Updated Submodule CI Status\n\n"
+            "<details>\n"
+            "<summary><b>Submodule CI Status Report</b> (No submodules present or updated)</summary>\n\n"
+            "No submodules present or updated.\n\n"
+            "</details>"
+        )
     if out_of_diff_notes:
         summary_parts.append(
             "### File-Level & Out-of-Diff Findings\n\n"
             + "\n\n---\n\n".join(out_of_diff_notes)
+        )
+    else:
+        summary_parts.append(
+            "### File-Level & Out-of-Diff Findings\n\n"
+            "<details>\n"
+            "<summary><b>File-Level &amp; Out-of-Diff Findings</b> (No file-level or out-of-diff findings)</summary>\n\n"
+            "No file-level or out-of-diff findings.\n\n"
+            "</details>"
         )
 
     return GitHubReviewPayload(

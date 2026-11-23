@@ -480,5 +480,7 @@ async def test_record_review_comments_extracts_submodule_ci_status(
     assert data["review_body_path"] is not None
     body_md = Path(data["review_body_path"]).read_text(encoding="utf-8")
     assert "### Updated Submodule CI Status" in body_md
+    assert "<details>" in body_md
+    assert "<summary><b>Submodule CI Status Report</b></summary>" in body_md
     assert "`src/cece` (L1)" in body_md
     assert "`src/cece/extern/helm` (L2)" in body_md

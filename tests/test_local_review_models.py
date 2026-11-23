@@ -546,10 +546,36 @@ def test_parse_review_submodule_ci_status_and_payload_rendering() -> None:
     )
     assert payload.body is not None
     assert payload.body.count("### Updated Submodule CI Status") == 1
+    assert (
+        "<details>\n<summary><b>Submodule CI Status Report</b></summary>"
+        in payload.body
+    )
     assert "`ufs-community/CECE`" in payload.body
+    assert "</details>" in payload.body
     assert payload.body.index("### Executive Summary") < payload.body.index(
         "### Updated Submodule CI Status"
     )
+
+    payload_no_sub = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash="ef332888632dd4d4afa20891a1319da37bfedf0f",
+        executive_summary=["**Verdict**: COMMENT"],
+    )
+    assert payload_no_sub.body is not None
+    assert (
+        "### Updated Submodule CI Status\n\n"
+        "<details>\n"
+        "<summary><b>Submodule CI Status Report</b> (No submodules present or updated)</summary>\n\n"
+        "No submodules present or updated.\n\n"
+        "</details>"
+    ) in payload_no_sub.body
+    assert (
+        "### File-Level & Out-of-Diff Findings\n\n"
+        "<details>\n"
+        "<summary><b>File-Level &amp; Out-of-Diff Findings</b> (No file-level or out-of-diff findings)</summary>\n\n"
+        "No file-level or out-of-diff findings.\n\n"
+        "</details>"
+    ) in payload_no_sub.body
 
 
 def test_parse_review_overview_and_non_bullet_payload_rendering() -> None:
