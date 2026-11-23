@@ -475,6 +475,27 @@ def parse_review_executive_summary(
     return bullets[:max_bullets]
 
 
+_SUBMODULE_CI_SECTION_RE = re.compile(
+    r"^###\s+Updated\s+Submodule\s+CI\s+Status\b[^\n]*\n(.*?)(?=^#{2,3}\s|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
+
+def parse_review_submodule_ci_status(markdown_text: str) -> str | None:
+    """Extract the '### Updated Submodule CI Status' markdown block from a review report if non-empty."""
+    match = _SUBMODULE_CI_SECTION_RE.search(markdown_text)
+    if not match:
+        return None
+    body = match.group(1).strip()
+    if not body:
+        return None
+    if "|" not in body and re.search(
+        r"\b(?:no\s+updated\s+submodules|none)\b", body, re.IGNORECASE
+    ):
+        return None
+    return body
+
+
 def _normalize_executive_summary_bullets(
     executive_summary: list[str] | str | None, max_bullets: int = 5
 ) -> list[str]:
@@ -511,6 +532,7 @@ def build_pending_review_payload(
     model_name: str | None = None,
     thinking_effort: str | None = None,
     executive_summary: list[str] | str | None = None,
+    submodule_ci_report: str | None = None,
 ) -> GitHubReviewPayload:
     """Build a pending-only GitHubReviewPayload (no event field) from review findings.
 
@@ -641,6 +663,15 @@ def build_pending_review_payload(
     if exec_bullets:
         bullet_block = "\n".join(f"- {b}" for b in exec_bullets)
         summary_parts.append(f"### Executive Summary\n\n{bullet_block}")
+    if submodule_ci_report and submodule_ci_report.strip():
+        cleaned_sub = re.sub(
+            r"^###\s+Updated\s+Submodule\s+CI\s+Status\b[^\n]*\n+",
+            "",
+            submodule_ci_report.strip(),
+            flags=re.IGNORECASE,
+        ).strip()
+        if cleaned_sub:
+            summary_parts.append(f"### Updated Submodule CI Status\n\n{cleaned_sub}")
     if out_of_diff_notes:
         summary_parts.append(
             "### File-Level & Out-of-Diff Findings\n\n"

@@ -18,6 +18,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     parse_review_executive_summary,
     parse_review_markdown_findings,
     parse_review_model_attribution,
+    parse_review_submodule_ci_status,
 )
 
 
@@ -511,3 +512,40 @@ def test_build_pending_review_payload_model_attribution_and_string_summary() -> 
     )
     assert p_effort.body is not None
     assert "AI Model & Vendor: Thinking Effort: High\n" in p_effort.body
+
+
+def test_parse_review_submodule_ci_status_and_payload_rendering() -> None:
+    assert parse_review_submodule_ci_status("No submodule section here.") is None
+    assert (
+        parse_review_submodule_ci_status(
+            "### Updated Submodule CI Status\nNo updated submodules in this PR.\n## 4. Next\n"
+        )
+        is None
+    )
+
+    md = (
+        "## 3. GitHub Actions CI Checks & Test Coverage/Gating Analysis\n"
+        "- **False Confidence / Gating Explanation**: None.\n\n"
+        "### Updated Submodule CI Status\n"
+        "| Submodule (Depth) | Repo | Hash Update | CI Running? | CI Status Summary |\n"
+        "| :--- | :--- | :--- | :--- | :--- |\n"
+        "| `src/cece` (L1) | `ufs-community/CECE` | `1a2b3c4..9f8e7d6` | Yes (`2` running) | `RUNNING` — 2 in progress, 3 passed |\n\n"
+        "## 4. Prioritized Action Items\n"
+    )
+    extracted = parse_review_submodule_ci_status(md)
+    assert extracted is not None
+    assert "`src/cece` (L1)" in extracted
+    assert "Prioritized Action Items" not in extracted
+
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash="ef332888632dd4d4afa20891a1319da37bfedf0f",
+        executive_summary=["**Verdict**: COMMENT"],
+        submodule_ci_report=f"### Updated Submodule CI Status\n\n{extracted}",
+    )
+    assert payload.body is not None
+    assert payload.body.count("### Updated Submodule CI Status") == 1
+    assert "`ufs-community/CECE`" in payload.body
+    assert payload.body.index("### Executive Summary") < payload.body.index(
+        "### Updated Submodule CI Status"
+    )

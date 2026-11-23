@@ -39,6 +39,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     parse_review_executive_summary,
     parse_review_markdown_findings,
     parse_review_model_attribution,
+    parse_review_submodule_ci_status,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
     DomainFinding,
@@ -592,6 +593,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         model_name: str | None = None,
         thinking_effort: str | None = None,
         executive_summary: list[str] | str | None = None,
+        submodule_ci_report: str | None = None,
     ) -> str:
         if pr_url:
             try:
@@ -624,6 +626,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
 
         extracted_model_attr: str | None = None
         extracted_exec_summary: list[str] = []
+        extracted_submodule_ci: str | None = None
         if review_file_path:
             fpath = Path(review_file_path)
             if fpath.exists():
@@ -631,6 +634,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 parsed_comments.extend(parse_review_markdown_findings(text))
                 extracted_model_attr = parse_review_model_attribution(text)
                 extracted_exec_summary = parse_review_executive_summary(text)
+                extracted_submodule_ci = parse_review_submodule_ci_status(text)
                 if resolved_payload_path is None:
                     resolved_payload_path = fpath.parent / "review_payload.json"
             else:
@@ -642,6 +646,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 extracted_model_attr = parse_review_model_attribution(markdown_text)
             if not extracted_exec_summary:
                 extracted_exec_summary = parse_review_executive_summary(markdown_text)
+            if extracted_submodule_ci is None:
+                extracted_submodule_ci = parse_review_submodule_ci_status(markdown_text)
 
         if not parsed_comments:
             return json.dumps(
@@ -695,6 +701,11 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 if executive_summary is not None
                 else extracted_exec_summary
             )
+            effective_submodule_ci = (
+                submodule_ci_report
+                if submodule_ci_report is not None
+                else extracted_submodule_ci
+            )
 
             pending_payload = build_pending_review_payload(
                 comments=parsed_comments,
@@ -704,6 +715,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 model_name=effective_model,
                 thinking_effort=thinking_effort,
                 executive_summary=effective_exec_summary,
+                submodule_ci_report=effective_submodule_ci,
             )
             resolved_body_path = resolved_payload_path.with_name(
                 f"{resolved_payload_path.stem}_body.md"
