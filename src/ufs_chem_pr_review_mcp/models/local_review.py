@@ -416,6 +416,40 @@ _EXEC_SUMMARY_SECTION_RE = re.compile(
     re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
 
+_OVERVIEW_SECTION_RE = re.compile(
+    r"^#{3,4}\s+Overview\b[^\n]*\n(.*?)(?=^#{2,4}\s|^\s*[-*]\s+\*\*|\Z)",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+
+
+def _normalize_overview(overview: str | None) -> str | None:
+    """Normalize an overview paragraph, stripping any accidental heading or bullet prefix."""
+    if not overview:
+        return None
+    cleaned = re.sub(
+        r"^#{3,4}\s+Overview\b[^\n]*\n+",
+        "",
+        overview.strip(),
+        flags=re.IGNORECASE,
+    ).strip()
+    if cleaned.startswith(("- ", "* ")):
+        cleaned = cleaned[2:].strip()
+    cleaned = re.sub(
+        r"^\*\*Overview\*\*:?\s*", "", cleaned, flags=re.IGNORECASE
+    ).strip()
+    return cleaned or None
+
+
+def parse_review_overview(markdown_text: str) -> str | None:
+    """Extract the '### Overview' prose paragraph from Section 1 of a review markdown document."""
+    sec_match = _EXEC_SUMMARY_SECTION_RE.search(markdown_text)
+    if not sec_match:
+        return None
+    ov_match = _OVERVIEW_SECTION_RE.search(sec_match.group(1))
+    if not ov_match:
+        return None
+    return _normalize_overview(ov_match.group(1))
+
 
 def parse_review_executive_summary(
     markdown_text: str, max_bullets: int = 5
@@ -531,6 +565,7 @@ def build_pending_review_payload(
     model_vendor: str | None = None,
     model_name: str | None = None,
     thinking_effort: str | None = None,
+    overview: str | None = None,
     executive_summary: list[str] | str | None = None,
     submodule_ci_report: str | None = None,
 ) -> GitHubReviewPayload:
@@ -657,12 +692,17 @@ def build_pending_review_payload(
         f"Pending code review ({len(inline_comments)} inline diff comment(s), "
         f"{len(out_of_diff_notes)} file/out-of-diff finding(s))."
     ]
+    clean_overview = _normalize_overview(overview)
     exec_bullets = _normalize_executive_summary_bullets(
         executive_summary, max_bullets=5
     )
-    if exec_bullets:
-        bullet_block = "\n".join(f"- {b}" for b in exec_bullets)
-        summary_parts.append(f"### Executive Summary\n\n{bullet_block}")
+    if clean_overview or exec_bullets:
+        exec_sections: list[str] = []
+        if clean_overview:
+            exec_sections.append(f"#### Overview\n{clean_overview}")
+        if exec_bullets:
+            exec_sections.append("\n".join(f"- {b}" for b in exec_bullets))
+        summary_parts.append("### Executive Summary\n\n" + "\n\n".join(exec_sections))
     if submodule_ci_report and submodule_ci_report.strip():
         cleaned_sub = re.sub(
             r"^###\s+Updated\s+Submodule\s+CI\s+Status\b[^\n]*\n+",

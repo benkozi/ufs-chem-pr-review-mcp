@@ -290,7 +290,7 @@ For every finding:
 1. Write the complete, formatted report directly to the target file path using `write_to_file` / `write_file`.
 2. Present a concise confirmation response to the user:
    - Executive verdict (APPROVE / REQUEST CHANGES / COMMENT).
-   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` opening with a positive Overview of **at most 5 sentences** summarizing what the PR does and highlighting its strengths before the verdict, with **at most 5 bullets** total, and `### Updated Submodule CI Status` markdown table whenever the PR updates any submodule hashes).
+   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` opening with a `#### Overview` **prose paragraph (never a bullet)** of **at most 5 sentences** summarizing what the PR does and highlighting its strengths before the verdict, followed by **at most 5 bullets** for the verdict/findings/CI summary, and `### Updated Submodule CI Status` markdown table whenever the PR updates any submodule hashes).
    - CI check status, updated submodule CI status summary (if any), & false-confidence analysis (why checks passed despite issues).
    - Validity breakdown of existing peer comments (valid, invalid, resolved).
    - Status of pending review drafts (incorporated items).
@@ -314,22 +314,23 @@ Immediately after generating the review report, the agent automatically persists
        "model_vendor": "<ai_vendor_name>",
        "model_name": "<ai_model_name>",
        "thinking_effort": "<thinking_effort_level>",
+       "overview": "<Prose paragraph (never a bullet, max 5 sentences) summarizing what the PR does and highlighting its key strengths before the verdict; auto-extracted from Section 1 '### Overview' if omitted>",
        "executive_summary": [
-         "<Bullet 1: Overview (max 5 sentences) — what the PR does and its key strengths, opening on a constructive, positive note before the verdict>",
-         "<Bullet 2: Verdict & primary P0/P1 findings>",
-         "<Bullet 3: Secondary findings / Ponytail simplifications>",
-         "<Bullet 4: CI & test gating assessment>",
-         "<Bullet 5: Overall takeaway & next steps>"
+         "<Bullet 1: **Verdict**: ...>",
+         "<Bullet 2: **P0/P1 Findings**: ...>",
+         "<Bullet 3: **P2/P3 Items / Ponytail**: ...>",
+         "<Bullet 4: **CI & Test Gating**: ...>",
+         "<Bullet 5: **Next Steps / Governance**: ...>"
        ],
        "submodule_ci_report": "<optional compact markdown table of recursively checked updated submodule CI statuses; auto-extracted from Section 3 '### Updated Submodule CI Status' if omitted>"
      }
      ```
-     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`. Always supply `"model_vendor"`, `"model_name"`, `"thinking_effort"` (e.g., `"Low"`, `"Medium"`, `"High"`), and `"executive_summary"` (**max 5 bullets**)—or include `- **AI Model & Vendor**: <vendor> / <model> (Thinking Effort: <effort>)` in Section 1 of the markdown report—so `review_payload_body.md` contains the complete top-level review summary message ready to paste into GitHub. Whenever the PR updates submodule hashes, ensure Section 3 includes `### Updated Submodule CI Status` (or pass `"submodule_ci_report"` directly) so it is automatically included in `review_payload_body.md`.)*
+     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`. Always supply `"model_vendor"`, `"model_name"`, `"thinking_effort"` (e.g., `"Low"`, `"Medium"`, `"High"`), `"overview"` (a standalone prose paragraph — **never a bullet** — rendered under `#### Overview`, auto-extracted from Section 1 `### Overview` if omitted), and `"executive_summary"` (**max 5 bullets** for verdict, findings, and CI — do NOT put the Overview inside `executive_summary`) so `review_payload_body.md` contains the complete top-level review summary message ready to paste into GitHub. Whenever the PR updates submodule hashes, ensure Section 3 includes `### Updated Submodule CI Status` (or pass `"submodule_ci_report"` directly) so it is automatically included in `review_payload_body.md`.)*
 2. **Under the Hood Execution**:
    - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
    - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).
-   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor/thinking-effort attribution + Executive Summary of max 5 bullets + optional `### Updated Submodule CI Status` markdown table + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
-   - **Machine-Generated Provenance, AI Model/Thinking Effort, Executive Summary & Submodule CI Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header, the AI model + vendor + thinking effort used for the review, the Executive Summary (**at most 5 bullets**), and—whenever the PR updates submodule hashes—the compact `### Updated Submodule CI Status` table:
+   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor/thinking-effort attribution + `### Executive Summary` with `#### Overview` prose paragraph and max 5 bullets + optional `### Updated Submodule CI Status` markdown table + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
+   - **Machine-Generated Provenance, AI Model/Thinking Effort, Executive Summary & Submodule CI Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header, the AI model + vendor + thinking effort used for the review, the Executive Summary (`#### Overview` as a **non-bullet prose paragraph** of at most 5 sentences, followed by **at most 5 bullets**), and—whenever the PR updates submodule hashes—the compact `### Updated Submodule CI Status` table:
      ```markdown
      Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [<short_hash>](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/<current hash of the mcp server>)
      AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)
@@ -337,7 +338,11 @@ Immediately after generating the review report, the agent automatically persists
      Pending code review (<N> inline diff comment(s), <M> file/out-of-diff finding(s)).
 
      ### Executive Summary
-     - <Bullet 1>
+
+     #### Overview
+     <Standalone prose paragraph (not a bullet), max 5 sentences, summarizing what the PR accomplishes and highlighting its strengths.>
+
+     - **Verdict**: <Bullet 1>
      - <Bullet 2>
      - <Bullet 3>
      - <Bullet 4>

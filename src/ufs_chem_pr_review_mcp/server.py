@@ -39,6 +39,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     parse_review_executive_summary,
     parse_review_markdown_findings,
     parse_review_model_attribution,
+    parse_review_overview,
     parse_review_submodule_ci_status,
 )
 from ufs_chem_pr_review_mcp.models.mcp_tools import (
@@ -592,6 +593,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
         model_vendor: str | None = None,
         model_name: str | None = None,
         thinking_effort: str | None = None,
+        overview: str | None = None,
         executive_summary: list[str] | str | None = None,
         submodule_ci_report: str | None = None,
     ) -> str:
@@ -625,6 +627,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 parsed_comments.append(LocalReviewCommentInput.model_validate(c))
 
         extracted_model_attr: str | None = None
+        extracted_overview: str | None = None
         extracted_exec_summary: list[str] = []
         extracted_submodule_ci: str | None = None
         if review_file_path:
@@ -633,6 +636,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 text = fpath.read_text(encoding="utf-8")
                 parsed_comments.extend(parse_review_markdown_findings(text))
                 extracted_model_attr = parse_review_model_attribution(text)
+                extracted_overview = parse_review_overview(text)
                 extracted_exec_summary = parse_review_executive_summary(text)
                 extracted_submodule_ci = parse_review_submodule_ci_status(text)
                 if resolved_payload_path is None:
@@ -644,6 +648,8 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             parsed_comments.extend(parse_review_markdown_findings(markdown_text))
             if extracted_model_attr is None:
                 extracted_model_attr = parse_review_model_attribution(markdown_text)
+            if extracted_overview is None:
+                extracted_overview = parse_review_overview(markdown_text)
             if not extracted_exec_summary:
                 extracted_exec_summary = parse_review_executive_summary(markdown_text)
             if extracted_submodule_ci is None:
@@ -696,6 +702,9 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
             effective_model = model_name
             if not effective_vendor and not effective_model and extracted_model_attr:
                 effective_model = extracted_model_attr
+            effective_overview = (
+                overview if overview is not None else extracted_overview
+            )
             effective_exec_summary = (
                 executive_summary
                 if executive_summary is not None
@@ -714,6 +723,7 @@ def create_mcp_server(db_path: Path | None = None) -> FastMCP:
                 model_vendor=effective_vendor,
                 model_name=effective_model,
                 thinking_effort=thinking_effort,
+                overview=effective_overview,
                 executive_summary=effective_exec_summary,
                 submodule_ci_report=effective_submodule_ci,
             )

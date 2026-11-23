@@ -18,6 +18,7 @@ from ufs_chem_pr_review_mcp.models.local_review import (
     parse_review_executive_summary,
     parse_review_markdown_findings,
     parse_review_model_attribution,
+    parse_review_overview,
     parse_review_submodule_ci_status,
 )
 
@@ -549,3 +550,39 @@ def test_parse_review_submodule_ci_status_and_payload_rendering() -> None:
     assert payload.body.index("### Executive Summary") < payload.body.index(
         "### Updated Submodule CI Status"
     )
+
+
+def test_parse_review_overview_and_non_bullet_payload_rendering() -> None:
+    assert parse_review_overview("No executive summary section here.") is None
+    assert (
+        parse_review_overview("## 1. Executive Summary & Verdict\n- **Verdict**: OK\n")
+        is None
+    )
+
+    md = (
+        "## 1. Executive Summary & Verdict\n\n"
+        "### Overview\n"
+        "This PR simplifies CI checks cleanly and removes 146 lines of shell code.\n\n"
+        "- **Verdict**: REQUEST CHANGES\n"
+        "## 2. Next Section\n"
+    )
+    overview = parse_review_overview(md)
+    assert (
+        overview
+        == "This PR simplifies CI checks cleanly and removes 146 lines of shell code."
+    )
+
+    payload = build_pending_review_payload(
+        [LocalReviewCommentInput(path="a.F90", line=1, body="issue")],
+        mcp_commit_hash="ef332888632dd4d4afa20891a1319da37bfedf0f",
+        overview="- **Overview**: This PR simplifies CI checks cleanly.",
+        executive_summary=["**Verdict**: REQUEST CHANGES"],
+    )
+    assert payload.body is not None
+    assert (
+        "### Executive Summary\n\n"
+        "#### Overview\n"
+        "This PR simplifies CI checks cleanly.\n\n"
+        "- **Verdict**: REQUEST CHANGES"
+    ) in payload.body
+    assert "- This PR simplifies CI checks cleanly." not in payload.body

@@ -387,6 +387,10 @@ async def test_record_review_comments_extracts_model_attribution_and_summary(
         """# Pull Request Review: [ufs-community/CATChem#777]
 
 ## 1. Executive Summary & Verdict
+
+### Overview
+This PR hardens the core module with clear boundaries and solid tests.
+
 - **Verdict**: REQUEST CHANGES
 - **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)
 
@@ -421,6 +425,10 @@ async def test_record_review_comments_extracts_model_attribution_and_summary(
         in body_md
     )
     assert "### Executive Summary" in body_md
+    assert (
+        "#### Overview\n"
+        "This PR hardens the core module with clear boundaries and solid tests."
+    ) in body_md
     assert "- **Verdict**: REQUEST CHANGES" in body_md
 
 
