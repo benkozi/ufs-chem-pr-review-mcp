@@ -427,7 +427,12 @@ def test_build_pending_review_payload_includes_model_and_vendor() -> None:
     )
     assert payload.body is not None
     assert (
-        "AI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)"
+        "*SI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)*"
+        in payload.body
+    )
+    assert "*<br>\n*SI Model & Vendor:" in payload.body
+    assert (
+        "*Pending code review (1 inline diff comment(s), 0 file/out-of-diff finding(s)).*"
         in payload.body
     )
     assert "### Executive Summary" in payload.body
@@ -442,7 +447,7 @@ def test_build_pending_review_payload_includes_model_and_vendor() -> None:
         "- **Verdict**: REQUEST CHANGES\n"
         "- **Target Repo & PR**: [NOAA-EMC/HELM#39](https://github.com/NOAA-EMC/HELM/pull/39)\n"
         "- **Pinned Revision**: `c3f9e75..dbe8592` (120 changed files)\n"
-        "- **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)\n"
+        "- **SI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)\n"
         "- **Lines Removable (Ponytail)**: ~76 lines\n"
         "- **Findings Summary**: 0 P0, 2 P1, 2 P2, 2 P3\n"
         "- **High-Level Takeaway**: Core kernels are solid; fix bicubic discovery and Dask serialization.\n"
@@ -493,7 +498,7 @@ def test_build_pending_review_payload_model_attribution_and_string_summary() -> 
         executive_summary="# Ignored Heading\n- First bullet\n* Second bullet\n",
     )
     assert p_name.body is not None
-    assert "AI Model & Vendor: Gemini\n" in p_name.body
+    assert "*SI Model & Vendor: Gemini*\n" in p_name.body
     assert "- First bullet\n- Second bullet" in p_name.body
 
     # model_vendor only
@@ -503,7 +508,7 @@ def test_build_pending_review_payload_model_attribution_and_string_summary() -> 
         model_vendor="Google DeepMind",
     )
     assert p_vendor.body is not None
-    assert "AI Model & Vendor: Google DeepMind\n" in p_vendor.body
+    assert "*SI Model & Vendor: Google DeepMind*\n" in p_vendor.body
 
     # thinking_effort only
     p_effort = build_pending_review_payload(
@@ -512,7 +517,7 @@ def test_build_pending_review_payload_model_attribution_and_string_summary() -> 
         thinking_effort="High",
     )
     assert p_effort.body is not None
-    assert "AI Model & Vendor: Thinking Effort: High\n" in p_effort.body
+    assert "*SI Model & Vendor: Thinking Effort: High*\n" in p_effort.body
 
 
 def test_parse_review_submodule_ci_status_and_payload_rendering() -> None:

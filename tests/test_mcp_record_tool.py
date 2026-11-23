@@ -392,7 +392,7 @@ async def test_record_review_comments_extracts_model_attribution_and_summary(
 This PR hardens the core module with clear boundaries and solid tests.
 
 - **Verdict**: REQUEST CHANGES
-- **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)
+- **SI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)
 
 ## 5. Detailed Findings & Machine-Applicable Suggestions
 
@@ -421,7 +421,7 @@ This PR hardens the core module with clear boundaries and solid tests.
     assert data["review_body_path"] is not None
     body_md = Path(data["review_body_path"]).read_text(encoding="utf-8")
     assert (
-        "AI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)"
+        "SI Model & Vendor: Google DeepMind / Gemini (Thinking Effort: Medium)"
         in body_md
     )
     assert "### Executive Summary" in body_md
@@ -442,7 +442,7 @@ async def test_record_review_comments_extracts_submodule_ci_status(
 
 ## 1. Executive Summary & Verdict
 - **Verdict**: COMMENT
-- **AI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)
+- **SI Model & Vendor**: Google DeepMind / Gemini (Thinking Effort: Medium)
 
 ## 3. GitHub Actions CI Checks & Test Coverage/Gating Analysis
 

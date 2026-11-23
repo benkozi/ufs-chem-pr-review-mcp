@@ -396,13 +396,13 @@ def get_mcp_server_commit_hash() -> str:
 
 
 _MODEL_VENDOR_RE = re.compile(
-    r"^\s*-\s*\*\*AI\s+Model\s*(?:&|and)\s*Vendor\*\*\s*:\s*(.+?)\s*$",
+    r"^\s*-\s*\*\*(?:SI|AI)\s+Model\s*(?:&|and)\s*Vendor\*\*\s*:\s*(.+?)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
 
 def parse_review_model_attribution(markdown_text: str) -> str | None:
-    """Extract the 'AI Model & Vendor' attribution string from review markdown if present."""
+    """Extract the 'SI Model & Vendor' (or legacy 'AI Model & Vendor') attribution string from review markdown if present."""
     match = _MODEL_VENDOR_RE.search(markdown_text)
     if match:
         val = match.group(1).strip()
@@ -463,6 +463,7 @@ def parse_review_executive_summary(
     bullets: list[str] = []
     skip_prefixes = (
         "**target repo",
+        "**si model",
         "**ai model",
         "**change groups reviewed",
     )
@@ -682,18 +683,24 @@ def build_pending_review_payload(
             base_model_attr = (
                 f"{base_model_attr} (Thinking Effort: {thinking_effort.strip()})"
             )
-        model_line = f"AI Model & Vendor: {base_model_attr}\n"
+        model_line = f"*SI Model & Vendor: {base_model_attr}*"
     elif thinking_effort and thinking_effort.strip():
-        model_line = f"AI Model & Vendor: Thinking Effort: {thinking_effort.strip()}\n"
+        model_line = f"*SI Model & Vendor: Thinking Effort: {thinking_effort.strip()}*"
     else:
         model_line = ""
 
-    summary_parts = [
-        f"Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ {commit_ref}\n"
-        f"{model_line}\n"
-        f"Pending code review ({len(inline_comments)} inline diff comment(s), "
-        f"{len(out_of_diff_notes)} file/out-of-diff finding(s))."
-    ]
+    provenance_line = (
+        f"*Machine-generated comments by "
+        f"[ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ {commit_ref}*"
+    )
+    header_block = (
+        f"{provenance_line}<br>\n{model_line}" if model_line else provenance_line
+    )
+    pending_line = (
+        f"*Pending code review ({len(inline_comments)} inline diff comment(s), "
+        f"{len(out_of_diff_notes)} file/out-of-diff finding(s)).*"
+    )
+    summary_parts = [f"{header_block}\n\n{pending_line}"]
     clean_overview = _normalize_overview(overview)
     exec_bullets = _normalize_executive_summary_bullets(
         executive_summary, max_bullets=5
