@@ -20,3 +20,7 @@ repositories:
     url: https://github.com/noaa-emc/HELM
     default_branch: main
     enabled: true
+  - name: ufs-community/ufs-ci-tools
+    url: https://github.com/ufs-community/ufs-ci-tools
+    default_branch: develop
+    enabled: true

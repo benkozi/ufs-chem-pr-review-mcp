@@ -26,9 +26,9 @@ gh auth status
 ### 2. Step 2: Configuration & Parameter Assessment
 - Verify `config/repositories.yaml` is present and review configured repositories (`CATChem`, `CECE`, `HELM`, etc.).
 - Parse user arguments:
-  - If a specific repository was requested (e.g., `ufs-community/CATChem`), use `--repo <repo_name>`.
+  - **Default to targeted sync**: Because the database already contains extensive historical review coverage, prefer `--repo <repo_name>` whenever a specific repository is in scope (e.g., `ufs-community/CATChem` or a newly added repo).
+  - **All-repository scrape only on explicit request**: Only omit `--repo` (to scrape all repositories in `config/repositories.yaml`) when the user specifically requests syncing **all** repositories.
   - If retention parameters were provided, pass `--retention-days <days>` or `--max-records <records>`.
-  - Otherwise, run across all configured repositories.
 
 ### 3. Step 3: Execute Sync
 Execute the synchronization CLI command:

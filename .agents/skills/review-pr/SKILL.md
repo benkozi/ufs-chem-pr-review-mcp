@@ -27,7 +27,7 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
 ## Autonomous Multi-Lens Review Pipeline
 
 
-### Phase 0: Freshness Verification & On-Demand Incremental Sync
+### Phase 0: Freshness Verification & Target-Repo-Only Incremental Sync
 1. Parse the PR URL into `owner/repo` and `pr_number`.
 2. Inspect `data/ufs_chem_reviews.sqlite3` to check the latest indexed review timestamp for `target_repo`:
    ```bash
@@ -45,10 +45,12 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
    print(row[0] if row and row[0] else 'NONE')
    "
    ```
-3. If the timestamp is older than 24 hours, or if the repository has not been indexed, automatically run an incremental sync:
-   ```bash
-   uv run ufs-chem-pr-review-sync --repo <target_repo>
-   ```
+3. **Target-Repo-Only Scraping Policy**: Because the review database already holds substantial cross-repository history, **never** scrape all configured repositories during `review-pr` (only run a full multi-repo scrape when the user explicitly requests syncing all repositories).
+   - If the timestamp for `<target_repo>` is older than 24 hours, or if `<target_repo>` has not been indexed yet, run an incremental sync scoped strictly to the target repository:
+     ```bash
+     uv run ufs-chem-pr-review-sync --repo <target_repo>
+     ```
+   - If `<target_repo>` was already synced within the last 24 hours, skip scraping altogether.
    *Live PR diffs and existing comments bypass local cache and are always fetched fresh from GitHub in Phase 2.*
 
 ### Phase 1: Input Validation & Path Preparation
@@ -161,6 +163,7 @@ For in-depth analysis beyond the PR diff hunks (e.g., verifying whole-file conte
        - `ufs-community/CECE`: Chemistry Emission & Chemical Evolution; couples to CATChem chemistry drivers and input data readers.
        - `noaa-emc/HELM`: High-resolution Emission and Loss Modeling; feeds gridded emissions data into CECE/CATChem.
        - `ufs-community/ufs-chem-container`: Container definitions and submodule integration tests.
+       - `ufs-community/ufs-ci-tools`: Reusable GitHub Actions workflows, utility scripts, and automation templates for the UFS community.
        - Coupled host models & workflows: `ufs-weather-model`, `ufs-srw-app`, or `AQM`.
      - **Checking Out Dependent Repositories**:
        ```bash
@@ -186,7 +189,7 @@ Critically evaluate all comments returned in `existing_pr_comments`:
      - *Algorithmic / Language*: Is the suggested array slice syntax safe, or does the loop have recurrence data dependencies ($x(i) = x(i-1) + a(i)$)?
      - *OMD & EE2 Standards*: Does the suggestion violate Flux Fortran (pure functions), Forge C++ (RAII), or EE2 path standards?
      - *EE2 Portability Routing (`[portable]` vs `[WCOSS]`)*:
-       - Classify target repository context: Research and community repositories (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`) require universal **`[portable]`** rules (`FATAL ERROR:` / `WARNING:` prefixes, no backgrounding `&`, zero hardcoded host paths, fail-fast input validation, ASCII source).
+       - Classify target repository context: Research and community repositories (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`, `ufs-ci-tools`) require universal **`[portable]`** rules (`FATAL ERROR:` / `WARNING:` prefixes, no backgrounding `&`, zero hardcoded host paths, fail-fast input validation, ASCII source).
        - Operational **`[WCOSS]`** rules (`$SENDDBN`, `prep_step`, `dbn_alert`, NCO J-job `JAAAAA` naming, production directory trees) apply *only* to operational delivery packages destined for NCO production.
        - If a peer reviewer demands `[WCOSS]` operational scaffolding on a research or community library PR, classify the comment as **`[INVALID / FALSE POSITIVE]`** with the rationale that the target repo is a portable scientific component, not an NCO operational bundle.
      - *Ponytail*: Is the reviewer proposing an over-engineered abstraction?

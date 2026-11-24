@@ -5,7 +5,7 @@
 ## Portability Routing
 
 - **Target is WCOSS or an NCO operational delivery:** apply everything (`[portable]` + `[WCOSS]`).
-- **Target is RDHPCS, a workstation, or research-only (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`):**
+- **Target is RDHPCS, a workstation, or research-only (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`, `ufs-ci-tools`):**
   - Apply the **[portable]** subset and state that you did.
   - Do NOT present research-environment advice as full EE2 compliance.
   - Do NOT block a research script for a missing `$SENDDBN`, `prep_step`, `dbn_alert`, `JAAAAA` J-job naming, or PBS directive.
