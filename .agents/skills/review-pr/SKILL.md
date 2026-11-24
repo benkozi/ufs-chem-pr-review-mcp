@@ -207,6 +207,8 @@ Critically evaluate all comments returned in `existing_pr_comments`:
    - Suppress duplicate findings for issues already raised by peer reviewers, unless adding critical new evidence or validating the fix.
 5. **CI False-Confidence / False-Green Reconcilation**:
    - Reconcile "all checks passed" status against the code diff: determine whether passing CI represents genuine test validation or false reassurance due to skipped/gated tests, unexercised branches, or missing test registration.
+6. **Optional Superpowers Anti-Sycophancy Discipline**:
+   - If the `superpowers` plugin's `receiving-code-review` skill is available, leverage its verification discipline when assessing peer comments (treat external feedback skeptically, verify every claim against the diff/codebase before endorsing, and flag YAGNI or technically flawed suggestions directly). If `superpowers` is not installed, proceed normally with the validity rules above.
 
 ### Phase 4: Multi-Lens Deep Dive & Ponytail Scrutiny
 Review large PRs in logical chunks (**Security/Safety → Correctness/Physics → Tests → Architecture/Ponytail → Docs/Style**), distinguishing verified observations at the pinned `head_sha` from inference:
@@ -244,6 +246,8 @@ Review large PRs in logical chunks (**Security/Safety → Correctness/Physics �
 7. **Scratch Space & Dependent Application Cross-Analysis**:
    - If checked out locally in scratch space (Phase 2b), search caller sites across the whole repository (`rg "subroutine_or_symbol"`) to verify whether modified subroutine interfaces, Fortran `intent`, or parameter types broke un-diffed callers.
    - Check dependent applications in the scratch space for breaking interface changes, NUOPC coupling contract mismatches, or namelist incompatibilities.
+8. **Optional Fresh-Eyes Subagent Pass (Large PRs, when Superpowers is installed)**:
+   - If the `superpowers` plugin's `requesting-code-review` skill is available and the PR is large or cross-cutting, optionally delegate a fresh-eyes spec-then-quality pass to an isolated subagent using its `requesting-code-review` pattern (passing the pinned `base_sha..head_sha` diff/checkout and PR requirements without session history), then deduplicate and fold any verified findings into the standard `review-pr` report (Sections 4–6) and `record_review_comments` pipeline. If `superpowers` is not installed, skip this optional pass and complete Phase 4 inline.
 
 ### Phase 5: Severity Prioritization & Atomic Finding Decomposition
 1. Categorize every finding into standard severity tiers:
