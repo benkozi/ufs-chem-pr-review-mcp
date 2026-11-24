@@ -4,6 +4,7 @@ description: >-
   Conduct an in-depth, rigorous code review of a GitHub Pull Request given its URL,
   always pulling down existing and pending review comments and threads on the PR,
   critically evaluating the validity of existing comments against domain physics and rules,
+  recursively checking CI status for any updated git submodule hashes,
   refreshing the review knowledge base, synthesizing Ponytail over-engineering analysis,
   NOAA OMD standards, and atmospheric chemistry physics rules, writing the complete prioritized
   review report to a specified file path, and immediately ingesting all findings into the review
@@ -26,7 +27,7 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
 ## Autonomous Multi-Lens Review Pipeline
 
 
-### Phase 0: Freshness Verification & On-Demand Incremental Sync
+### Phase 0: Freshness Verification & Target-Repo-Only Incremental Sync
 1. Parse the PR URL into `owner/repo` and `pr_number`.
 2. Inspect `data/ufs_chem_reviews.sqlite3` to check the latest indexed review timestamp for `target_repo`:
    ```bash
@@ -44,10 +45,12 @@ Execute an autonomous, multi-lens code review of a GitHub Pull Request across UF
    print(row[0] if row and row[0] else 'NONE')
    "
    ```
-3. If the timestamp is older than 24 hours, or if the repository has not been indexed, automatically run an incremental sync:
-   ```bash
-   uv run ufs-chem-pr-review-sync --repo <target_repo>
-   ```
+3. **Target-Repo-Only Scraping Policy**: Because the review database already holds substantial cross-repository history, **never** scrape all configured repositories during `review-pr` (only run a full multi-repo scrape when the user explicitly requests syncing all repositories).
+   - If the timestamp for `<target_repo>` is older than 24 hours, or if `<target_repo>` has not been indexed yet, run an incremental sync scoped strictly to the target repository:
+     ```bash
+     uv run ufs-chem-pr-review-sync --repo <target_repo>
+     ```
+   - If `<target_repo>` was already synced within the last 24 hours, skip scraping altogether.
    *Live PR diffs and existing comments bypass local cache and are always fetched fresh from GitHub in Phase 2.*
 
 ### Phase 1: Input Validation & Path Preparation
@@ -86,7 +89,37 @@ Call the MCP tool `evaluate_pr` on the `ufs-chem-pr-review` MCP server (via `cal
     ```bash
     gh pr checks <pr_number> --repo <owner>/<repo>
     ```
-11. Audit CI workflow definitions (`.github/workflows/*.yml`) and build configuration:
+11. **Recursive Updated-Submodule CI Status Verification**:
+    - Inspect the PR diff for any **updated** (or newly added) git submodule pointers (gitlink entries with `-Subproject commit <old_sha>` / `+Subproject commit <new_sha>`). Ignore deleted submodules and unchanged submodules.
+    - If one or more submodule hashes were updated, recursively traverse **only updated** submodule hashes (depth limit 5, with a visited set of `(owner/repo, old_sha, new_sha)` to prevent cycles):
+      1. **Resolve Submodule Repository**: Fetch `.gitmodules` at the parent commit (`head_sha` for level 1, or `<parent_new_sha>` for nested levels) to map each updated submodule path to its GitHub `owner/repo` (resolving relative URLs such as `../<repo>.git` against `<parent_owner>/<parent_repo>`):
+         ```bash
+         gh api "repos/<parent_owner>/<parent_repo>/contents/.gitmodules?ref=<parent_sha>" --jq '.content' | base64 --decode
+         ```
+      2. **Check If Submodule CI Is Running & Summarize Status** on `<new_sha>`:
+         ```bash
+         # GitHub Actions / Check Runs on the updated commit SHA
+         gh api "repos/<sub_owner>/<sub_repo>/commits/<new_sha>/check-runs" \
+           --jq '.check_runs[] | {name, status, conclusion, html_url}'
+         # GitHub Actions workflow runs (catches queued / in_progress runs)
+         gh api "repos/<sub_owner>/<sub_repo>/actions/runs?head_sha=<new_sha>" \
+           --jq '.workflow_runs[] | {name, status, conclusion, html_url}'
+         # Legacy commit statuses (external CI)
+         gh api "repos/<sub_owner>/<sub_repo>/commits/<new_sha>/status" \
+           --jq '{state, statuses: [.statuses[] | {context, state, target_url}]}'
+         ```
+         Classify each submodule's CI state:
+         - **CI Running?**: `Yes (<k> running)` if any check-run or workflow run has `status` in (`queued`, `in_progress`, `waiting`, `pending`, `requested`) or legacy commit status is `pending`; otherwise `No` (or `Unknown` if unreachable).
+         - **CI Status Summary**: e.g., `RUNNING (2 in progress, 3 passed)`, `PASSED (4/4)`, `FAILED (1 failed, 3 passed)`, `NO CI` (zero check-runs/statuses on `<new_sha>`), or `UNREACHABLE (<reason>)` for non-GitHub, private, or inaccessible submodules.
+      3. **Recurse Into Nested Updated Submodules**: When both `<old_sha>` and `<new_sha>` exist and differ, query the commit comparison to detect any nested submodule pointers that also changed between `<old_sha>` and `<new_sha>`:
+         ```bash
+         gh api "repos/<sub_owner>/<sub_repo>/compare/<old_sha>...<new_sha>" \
+           --jq '.files[] | select(.patch != null and (.patch | contains("Subproject commit"))) | {filename, patch}'
+         ```
+         For every nested updated submodule found, repeat steps 1–3 at depth `L+1`.
+      4. **Graceful Degradation**: Never abort the review if a submodule is hosted outside GitHub, private, or has an unresolvable/force-pushed `<old_sha>`. Record `UNREACHABLE` / `UNCOMPARABLE` with the brief reason in the submodule CI table and continue.
+    - Record the resulting compact markdown report table under **`### Updated Submodule CI Status`** in Section 3 of the review report **and** include it in the ready-to-post GitHub review message (`review_payload_body.md`).
+12. Audit CI workflow definitions (`.github/workflows/*.yml`) and build configuration:
     - Identify which test targets actually run in CI (`ctest`, custom shell scripts, lint hooks).
     - Uncover **Conditional Test Gating**: Search CMakeLists.txt and test harnesses for `if(EXISTS ...)` or environment gates that silently skip tests when fixture files (e.g., large NetCDF data) are absent from the CI environment.
     - Uncover **Orphaned / Standalone Tests**: Check whether modified shell test scripts (e.g. `tests/*.sh`) are actually registered as CTest tests or invoked by CI jobs.
@@ -130,6 +163,7 @@ For in-depth analysis beyond the PR diff hunks (e.g., verifying whole-file conte
        - `ufs-community/CECE`: Chemistry Emission & Chemical Evolution; couples to CATChem chemistry drivers and input data readers.
        - `noaa-emc/HELM`: High-resolution Emission and Loss Modeling; feeds gridded emissions data into CECE/CATChem.
        - `ufs-community/ufs-chem-container`: Container definitions and submodule integration tests.
+       - `ufs-community/ufs-ci-tools`: Reusable GitHub Actions workflows, utility scripts, and automation templates for the UFS community.
        - Coupled host models & workflows: `ufs-weather-model`, `ufs-srw-app`, or `AQM`.
      - **Checking Out Dependent Repositories**:
        ```bash
@@ -155,7 +189,7 @@ Critically evaluate all comments returned in `existing_pr_comments`:
      - *Algorithmic / Language*: Is the suggested array slice syntax safe, or does the loop have recurrence data dependencies ($x(i) = x(i-1) + a(i)$)?
      - *OMD & EE2 Standards*: Does the suggestion violate Flux Fortran (pure functions), Forge C++ (RAII), or EE2 path standards?
      - *EE2 Portability Routing (`[portable]` vs `[WCOSS]`)*:
-       - Classify target repository context: Research and community repositories (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`) require universal **`[portable]`** rules (`FATAL ERROR:` / `WARNING:` prefixes, no backgrounding `&`, zero hardcoded host paths, fail-fast input validation, ASCII source).
+       - Classify target repository context: Research and community repositories (`CATChem`, `CECE`, `HELM`, `ufs-chem-container`, `ufs-chem-assay`, `ufs-ci-tools`) require universal **`[portable]`** rules (`FATAL ERROR:` / `WARNING:` prefixes, no backgrounding `&`, zero hardcoded host paths, fail-fast input validation, ASCII source).
        - Operational **`[WCOSS]`** rules (`$SENDDBN`, `prep_step`, `dbn_alert`, NCO J-job `JAAAAA` naming, production directory trees) apply *only* to operational delivery packages destined for NCO production.
        - If a peer reviewer demands `[WCOSS]` operational scaffolding on a research or community library PR, classify the comment as **`[INVALID / FALSE POSITIVE]`** with the rationale that the target repo is a portable scientific component, not an NCO operational bundle.
      - *Ponytail*: Is the reviewer proposing an over-engineered abstraction?
@@ -173,6 +207,8 @@ Critically evaluate all comments returned in `existing_pr_comments`:
    - Suppress duplicate findings for issues already raised by peer reviewers, unless adding critical new evidence or validating the fix.
 5. **CI False-Confidence / False-Green Reconcilation**:
    - Reconcile "all checks passed" status against the code diff: determine whether passing CI represents genuine test validation or false reassurance due to skipped/gated tests, unexercised branches, or missing test registration.
+6. **Optional Superpowers Anti-Sycophancy Discipline**:
+   - If the `superpowers` plugin's `receiving-code-review` skill is available, leverage its verification discipline when assessing peer comments (treat external feedback skeptically, verify every claim against the diff/codebase before endorsing, and flag YAGNI or technically flawed suggestions directly). If `superpowers` is not installed, proceed normally with the validity rules above.
 
 ### Phase 4: Multi-Lens Deep Dive & Ponytail Scrutiny
 Review large PRs in logical chunks (**Security/Safety → Correctness/Physics → Tests → Architecture/Ponytail → Docs/Style**), distinguishing verified observations at the pinned `head_sha` from inference:
@@ -210,6 +246,8 @@ Review large PRs in logical chunks (**Security/Safety → Correctness/Physics �
 7. **Scratch Space & Dependent Application Cross-Analysis**:
    - If checked out locally in scratch space (Phase 2b), search caller sites across the whole repository (`rg "subroutine_or_symbol"`) to verify whether modified subroutine interfaces, Fortran `intent`, or parameter types broke un-diffed callers.
    - Check dependent applications in the scratch space for breaking interface changes, NUOPC coupling contract mismatches, or namelist incompatibilities.
+8. **Optional Fresh-Eyes Subagent Pass (Large PRs, when Superpowers is installed)**:
+   - If the `superpowers` plugin's `requesting-code-review` skill is available and the PR is large or cross-cutting, optionally delegate a fresh-eyes spec-then-quality pass to an isolated subagent using its `requesting-code-review` pattern (passing the pinned `base_sha..head_sha` diff/checkout and PR requirements without session history), then deduplicate and fold any verified findings into the standard `review-pr` report (Sections 4–6) and `record_review_comments` pipeline. If `superpowers` is not installed, skip this optional pass and complete Phase 4 inline.
 
 ### Phase 5: Severity Prioritization & Atomic Finding Decomposition
 1. Categorize every finding into standard severity tiers:
@@ -259,8 +297,8 @@ For every finding:
 1. Write the complete, formatted report directly to the target file path using `write_to_file` / `write_file`.
 2. Present a concise confirmation response to the user:
    - Executive verdict (APPROVE / REQUEST CHANGES / COMMENT).
-   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, and `### Executive Summary` with **at most 5 bullets**).
-   - CI check status & false-confidence analysis (why checks passed despite issues).
+   - Ready-to-post review body markdown block (matching `review_payload_body.md`: provenance line, `SI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)`, `### Executive Summary` opening with a `#### Overview` **prose paragraph (never a bullet)** of **at most 5 sentences** summarizing what the PR does and highlighting its strengths before the verdict, followed by **at most 5 bullets** for the verdict/findings/CI summary, and an explicit collapsible `### Updated Submodule CI Status` section — showing the recursive submodule CI table when submodules are updated, or `No submodules present or updated.` otherwise).
+   - CI check status, updated submodule CI status summary (if any), & false-confidence analysis (why checks passed despite issues).
    - Validity breakdown of existing peer comments (valid, invalid, resolved).
    - Status of pending review drafts (incorporated items).
    - Prioritized finding counts ($N_{P0}, N_{P1}, N_{P2}, N_{P3}$).
@@ -283,34 +321,53 @@ Immediately after generating the review report, the agent automatically persists
        "model_vendor": "<ai_vendor_name>",
        "model_name": "<ai_model_name>",
        "thinking_effort": "<thinking_effort_level>",
+       "overview": "<Prose paragraph (never a bullet, max 5 sentences) summarizing what the PR does and highlighting its key strengths before the verdict; auto-extracted from Section 1 '### Overview' if omitted>",
        "executive_summary": [
-         "<Bullet 1: Verdict & scope>",
-         "<Bullet 2: Primary P0/P1 findings>",
-         "<Bullet 3: Secondary findings / Ponytail simplifications>",
-         "<Bullet 4: CI & test gating assessment>",
-         "<Bullet 5: Strengths & overall takeaway>"
-       ]
+         "<Bullet 1: **Verdict**: ...>",
+         "<Bullet 2: **P0/P1 Findings**: ...>",
+         "<Bullet 3: **P2/P3 Items / Ponytail**: ...>",
+         "<Bullet 4: **CI & Test Gating**: ...>",
+         "<Bullet 5: **Next Steps / Governance**: ...>"
+       ],
+       "submodule_ci_report": "<optional compact markdown table of recursively checked updated submodule CI statuses; auto-extracted from Section 3 '### Updated Submodule CI Status' if omitted>"
      }
      ```
-     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`. Always supply `"model_vendor"`, `"model_name"`, `"thinking_effort"` (e.g., `"Low"`, `"Medium"`, `"High"`), and `"executive_summary"` (**max 5 bullets**)—or include `- **AI Model & Vendor**: <vendor> / <model> (Thinking Effort: <effort>)` in Section 1 of the markdown report—so `review_payload_body.md` contains the complete top-level review summary message ready to paste into GitHub.)*
+     *(Always provide `"diff_text"` from the Phase 2 evaluate_pr response or allow the tool to auto-fetch it so findings falling outside PR diff hunks are automatically folded into top-level review body notes, strictly preventing GitHub HTTP 422 `Line could not be resolved` errors on `gh api POST`. Always supply `"model_vendor"`, `"model_name"`, `"thinking_effort"` (e.g., `"Low"`, `"Medium"`, `"High"`), `"overview"` (a standalone prose paragraph — **never a bullet** — rendered under `#### Overview`, auto-extracted from Section 1 `### Overview` if omitted), and `"executive_summary"` (**max 5 bullets** for verdict, findings, and CI — do NOT put the Overview inside `executive_summary`) so `review_payload_body.md` contains the complete top-level review summary message ready to paste into GitHub. Whenever the PR updates submodule hashes, ensure Section 3 includes `### Updated Submodule CI Status` (or pass `"submodule_ci_report"` directly) so it is automatically included in `review_payload_body.md`.)*
 2. **Under the Hood Execution**:
    - The MCP tool parses all P0, P1, P2, and P3 findings, line ranges (`start_line` and `line` from `Recommended Post Location` / `Location`), and ````suggestion```` blocks directly from the report file.
    - Computes deterministic synthetic node IDs (`local-review:<repo>#<pr>:<path>:<line>:<hash>`) and upserts the findings into `data/ufs_chem_reviews.sqlite3` (immediately indexed into `comments_fts` via the `comments_ai` FTS5 trigger).
-   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor/thinking-effort attribution + Executive Summary of max 5 bullets + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
-   - **Machine-Generated Provenance, AI Model/Thinking Effort & Executive Summary Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header, the AI model + vendor + thinking effort used for the review, and the Executive Summary (**at most 5 bullets**):
+   - **Writes `<target_output_dir>/review_payload.json` and `<target_output_dir>/review_payload_body.md`**: Serializes a `GitHubReviewPayload` (inline comments only, omitting `"body"`) in the same directory as `review_file_path`, and writes the review summary body (provenance header + AI model/vendor/thinking-effort attribution + `### Executive Summary` with `#### Overview` prose paragraph and max 5 bullets + explicit collapsible `### Updated Submodule CI Status` `<details>` section + out-of-diff findings) to `review_payload_body.md` for copy-pasting into the GitHub review comment box on submission.
+   - **Machine-Generated Provenance, SI Model/Thinking Effort, Executive Summary & Submodule CI Notice**: The top of `review_payload_body.md` MUST contain the provenance comment header, the AI model + vendor + thinking effort used for the review, the Executive Summary (`#### Overview` as a **non-bullet prose paragraph** of at most 5 sentences, followed by **at most 5 bullets**), and an explicit collapsible `### Updated Submodule CI Status` `<details>` section (always included; states `No submodules present or updated.` when none are present or updated):
      ```markdown
-     Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [<short_hash>](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/<current hash of the mcp server>)
-     AI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)
+     *Machine-generated comments by [ufs-chem-pr-review-mcp](https://github.com/benkozi/ufs-chem-pr-review-mcp) @ [<short_hash>](https://github.com/benkozi/ufs-chem-pr-review-mcp/commit/<current hash of the mcp server>)*<br>
+     *SI Model & Vendor: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)*
 
-     Pending code review (<N> inline diff comment(s), <M> file/out-of-diff finding(s)).
+     *Pending code review (<N> inline diff comment(s), <M> file/out-of-diff finding(s)).*
 
      ### Executive Summary
-     - <Bullet 1>
+
+     #### Overview
+     <Standalone prose paragraph (not a bullet), max 5 sentences, summarizing what the PR accomplishes and highlighting its strengths.>
+
+     - **Verdict**: <Bullet 1>
      - <Bullet 2>
      - <Bullet 3>
      - <Bullet 4>
      - <Bullet 5>
+
+     ### Updated Submodule CI Status
+
+     <details>
+     <summary><b>Submodule CI Status Report</b></summary>
+
+     | Submodule (Depth) | Repo | Hash Update | CI Running? | CI Status Summary |
+     | :--- | :--- | :--- | :--- | :--- |
+     | `src/cece` (L1) | `ufs-community/CECE` | `1a2b3c4..9f8e7d6` | Yes (`2` running) | `RUNNING` — 2 in progress, 3 passed |
+     | `src/cece/extern/helm` (L2) | `NOAA-EMC/HELM` | `abc1234..def5678` | No | `PASSED` — 4/4 checks passed |
+
+     </details>
      ```
+     *(When the PR does not contain or update any submodule hashes, always include the collapsible block with `<summary><b>Submodule CI Status Report</b> (No submodules present or updated)</summary>` and body `No submodules present or updated.` Similarly, always include `### File-Level & Out-of-Diff Findings` — when there are none, include `<details><summary><b>File-Level &amp; Out-of-Diff Findings</b> (No file-level or out-of-diff findings)</summary>` with body `No file-level or out-of-diff findings.`)*
      (where `<current hash of the mcp server>` is dynamically resolved from `git rev-parse HEAD` of the MCP repository, `<vendor> / <model_name> (Thinking Effort: <thinking_effort>)` identifies the human-readable AI vendor, model, and thinking effort level used for the review, and `### Executive Summary` contains at most 5 concise bullets summarizing the review).
    - **Pending-Only Safety Guarantee**: `GitHubReviewPayload` strictly omits (and forbids) the `"event"` field. Because GitHub's `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` API sets a review to `PENDING` whenever `"event"` is omitted, `review_payload.json` can **only ever create a private `PENDING` draft review** on GitHub—it can never publicly submit `COMMENT`, `REQUEST_CHANGES`, or `APPROVE`.
 3. **Posting the Pending Review to GitHub via `gh api`**:
@@ -349,10 +406,14 @@ The generated markdown document MUST adhere to this structure:
 # Pull Request Review: [<owner>/<repo>#<pr_number>] - <pr_title>
 
 ## 1. Executive Summary & Verdict
+
+### Overview
+<At most 5 sentences summarizing what the PR accomplishes and highlighting its key strengths (e.g., clean design, simplification, hardening, or test coverage). Open the review on a constructive, positive note before presenting the verdict.>
+
 - **Verdict**: [APPROVE | REQUEST CHANGES | COMMENT]
 - **Target Repo & PR**: [<owner>/<repo>#<pr_number>](https://github.com/<owner>/<repo>/pull/<pr_number>)
 - **Pinned Revision**: `<base_sha_short>..<head_sha_short>` (<N> changed files across <M> logical groups)
-- **AI Model & Vendor**: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)
+- **SI Model & Vendor**: <vendor> / <model_name> (Thinking Effort: <thinking_effort>)
 - **Lines Removable (Ponytail)**: ~<N> lines
 - **Findings Summary**: <P0_count> Blockers (P0), <P1_count> Majors (P1), <P2_count> Over-Engineering (P2), <P3_count> Nits (P3)
 - **Change Groups Reviewed**: <Concise list of functional file groups reviewed>
@@ -374,6 +435,14 @@ The generated markdown document MUST adhere to this structure:
 | `Lint and Format` | `[PASSED]` | 14s | Passed; `symilar` hooks were in `stages: [manual]` and did not run. |
 
 - **False Confidence / Gating Explanation**: <Detailed analysis explaining why passing CI did not exercise latent defects>
+
+### Updated Submodule CI Status
+*(Always include. Recursively list updated git submodule hashes; if none are present or updated, state `No submodules present or updated.`)*
+
+| Submodule (Depth) | Repo | Hash Update | CI Running? | CI Status Summary |
+| :--- | :--- | :--- | :--- | :--- |
+| `src/cece` (L1) | `ufs-community/CECE` | `1a2b3c4..9f8e7d6` | Yes (`2` running) | `RUNNING` — 2 in progress, 3 passed |
+| `src/cece/extern/helm` (L2) | `NOAA-EMC/HELM` | `abc1234..def5678` | No | `PASSED` — 4/4 checks passed |
 
 ## 4. Prioritized Action Items
 - [ ] **[P0]** <Summary of blocker> — `chem/rates.F90:42`

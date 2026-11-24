@@ -83,6 +83,7 @@ When refreshing reviewer skills and guidelines, inspect and reconcile against al
    - https://github.com/noaa-emc/HELM (and https://github.com/bbakernoaa/HELM-Project)
    - https://github.com/ufs-community/ufs-chem-container
    - https://github.com/benkozi/ufs-chem-assay
+   - https://github.com/ufs-community/ufs-ci-tools
 2. **Historical Peer & GitHub Copilot Review Patterns (`data/ufs_chem_reviews.sqlite3`)**:
    - Sample recent `copilot-pull-request-reviewer` and peer comments in `data/ufs_chem_reviews.sqlite3` to verify inline comment ergonomics.
    - Enforce our team **Review Comment Template** conventions:

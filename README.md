@@ -39,6 +39,7 @@ Configured in [`config/repositories.yaml`](file:///Users/bkoziol/sandbox/git-ben
 - `ufs-community/ufs-chem-container`: Containerized build and run environments for UFS-Chem
 - `benkozi/ufs-chem-assay`: Benchmarking and validation harnesses
 - `noaa-emc/HELM`: Atmospheric composition and air quality modeling tools
+- `ufs-community/ufs-ci-tools`: Reusable GitHub Actions workflows, utility scripts, and automation templates for the UFS community
 
 ---
 
